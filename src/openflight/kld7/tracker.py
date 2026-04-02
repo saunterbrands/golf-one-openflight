@@ -188,6 +188,11 @@ class KLD7Tracker:
     BALL_MIN_DISTANCE_M = 3.8
     BALL_MAX_DISTANCE_M = 5.5
     BALL_MAX_BURST_GAP_S = 0.1  # Max gap between frames in a burst
+    # Precursor filter: require close-range activity within this window before
+    # a far-range detection. Eliminates isolated noise blips that have no
+    # corresponding swing event.
+    BALL_PRECURSOR_WINDOW_S = 0.3   # How far back to look for the swing
+    BALL_PRECURSOR_MIN_SPEED_KMH = 15.0  # Min close-range speed to count as a swing
 
     # --- Club detection thresholds ---
     # Club detected by speed transition (slow→fast) at arm's length distance
@@ -199,12 +204,38 @@ class KLD7Tracker:
     MIN_MAGNITUDE = 500
     MIN_CONFIDENCE = 0.3
 
+    def _has_swing_precursor(self, before_timestamp: float) -> bool:
+        """Check whether a close-range high-speed event occurred just before
+        a far-range detection.
+
+        A real ball launch is always preceded by a swing: fast targets at
+        arm's-length range (CLUB_MIN_DISTANCE_M–CLUB_MAX_DISTANCE_M) within
+        BALL_PRECURSOR_WINDOW_S before the far-range detection. Isolated
+        far-range blips with no preceding swing activity are noise.
+        """
+        window_start = before_timestamp - self.BALL_PRECURSOR_WINDOW_S
+        for frame in self._ring_buffer:
+            if not (window_start <= frame.timestamp < before_timestamp):
+                continue
+            for pt in frame.pdat or []:
+                if (pt is not None
+                        and self.CLUB_MIN_DISTANCE_M <= pt.get("distance", 0) <= self.CLUB_MAX_DISTANCE_M
+                        and abs(pt.get("speed", 0)) >= self.BALL_PRECURSOR_MIN_SPEED_KMH):
+                    return True
+            if frame.tdat:
+                td = frame.tdat
+                if (self.CLUB_MIN_DISTANCE_M <= td.get("distance", 0) <= self.CLUB_MAX_DISTANCE_M
+                        and abs(td.get("speed", 0)) >= self.BALL_PRECURSOR_MIN_SPEED_KMH):
+                    return True
+        return False
+
     def _extract_ball(self, shot_timestamp=None):
         """Extract ball launch angle from ring buffer.
 
         Ball signature: fast targets (>8 km/h) at far distance (>3.8m)
-        appearing as a 1-3 frame burst. Distance-based, not speed-based,
-        because K-LD7 speed aliases above 100 km/h.
+        appearing as a 1-3 frame burst, preceded by close-range swing
+        activity within BALL_PRECURSOR_WINDOW_S. Distance-based, not
+        speed-based, because K-LD7 speed aliases above 100 km/h.
         """
         # Collect qualifying targets per frame
         ball_frames = []
@@ -241,6 +272,16 @@ class KLD7Tracker:
                 bursts.append(current_burst)
                 current_burst = [ball_frames[i]]
         bursts.append(current_burst)
+
+        # Filter bursts that have no close-range swing precursor — those are noise
+        bursts_with_precursor = [
+            b for b in bursts if self._has_swing_precursor(b[0][0])
+        ]
+        if bursts_with_precursor:
+            bursts = bursts_with_precursor
+        else:
+            logger.debug("K-LD7 ball: no bursts with swing precursor, falling back to all %d bursts",
+                          len(bursts))
 
         # Pick the best burst — prefer closest to shot_timestamp, else highest magnitude
         if shot_timestamp is not None:
