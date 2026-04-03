@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from collections import deque
-from typing import Optional
+from typing import Optional, Tuple
 
 from .types import KLD7Angle, KLD7Frame
 
@@ -193,6 +193,10 @@ class KLD7Tracker:
     # corresponding swing event.
     BALL_PRECURSOR_WINDOW_S = 0.3   # How far back to look for the swing
     BALL_PRECURSOR_MIN_SPEED_KMH = 15.0  # Min close-range speed to count as a swing
+    # Shot timestamp window: when a shot timestamp is provided, only consider
+    # far-range frames within this window. Ball must arrive after impact.
+    BALL_SHOT_WINDOW_PRE_S = 0.05   # Allow 50ms before (timing jitter)
+    BALL_SHOT_WINDOW_POST_S = 0.20  # Ball exits detection zone within ~200ms for any club
 
     # --- Club detection thresholds ---
     # Club detected by speed transition (slow→fast) at arm's length distance
@@ -203,6 +207,14 @@ class KLD7Tracker:
     # --- General ---
     MIN_MAGNITUDE = 500
     MIN_CONFIDENCE = 0.3
+    # Default plausibility gate when no club type is known.
+    BALL_MAX_LAUNCH_ANGLE_DEG = 40.0
+
+    # Per-club launch angle windows (min_deg, max_deg).
+    # Ranges are typical PGA Tour / amateur data with ~5° headroom on each side.
+    # Used by get_angle_for_shot() when a ClubType is provided to tighten the
+    # angle gate beyond the generic 0–40° fallback.
+    CLUB_ANGLE_GATES: dict = {}  # populated below after class definition
 
     def _has_swing_precursor(self, before_timestamp: float) -> bool:
         """Check whether a close-range high-speed event occurred just before
@@ -229,7 +241,7 @@ class KLD7Tracker:
                     return True
         return False
 
-    def _extract_ball(self, shot_timestamp=None):
+    def _extract_ball(self, shot_timestamp=None, angle_min: float = 0.0, angle_max: Optional[float] = None):
         """Extract ball launch angle from ring buffer.
 
         Ball signature: fast targets (>8 km/h) at far distance (>3.8m)
@@ -261,6 +273,21 @@ class KLD7Tracker:
             logger.debug("K-LD7 ball: no far/fast targets in %d buffer frames",
                           len(self._ring_buffer))
             return None
+
+        # When a shot timestamp is known, discard frames outside the expected
+        # ball flight window. The ball can only arrive at far range after impact.
+        if shot_timestamp is not None:
+            window_start = shot_timestamp - self.BALL_SHOT_WINDOW_PRE_S
+            window_end = shot_timestamp + self.BALL_SHOT_WINDOW_POST_S
+            ball_frames = [
+                (ts, tgts) for ts, tgts in ball_frames
+                if window_start <= ts <= window_end
+            ]
+            if not ball_frames:
+                logger.debug("K-LD7 ball: no far/fast targets within shot window (±%.0f/+%.0fms)",
+                              self.BALL_SHOT_WINDOW_PRE_S * 1000,
+                              self.BALL_SHOT_WINDOW_POST_S * 1000)
+                return None
 
         # Group into bursts (consecutive frames within BALL_MAX_BURST_GAP_S)
         bursts = []
@@ -332,6 +359,18 @@ class KLD7Tracker:
         confidence = round(min(max(
             frame_score * 0.4 + mag_score * 0.3 + consistency * 0.3,
             0.0), 1.0), 2)
+
+        effective_max = angle_max if angle_max is not None else self.BALL_MAX_LAUNCH_ANGLE_DEG
+
+        if avg_angle < angle_min:
+            logger.debug("K-LD7 ball: rejected — angle %.1f° below min %.1f°",
+                          avg_angle, angle_min)
+            return None
+
+        if avg_angle > effective_max:
+            logger.debug("K-LD7 ball: rejected — angle %.1f° exceeds max %.1f°",
+                          avg_angle, effective_max)
+            return None
 
         if confidence < self.MIN_CONFIDENCE:
             logger.debug("K-LD7 ball: rejected — confidence %.2f < %.2f",
@@ -453,12 +492,38 @@ class KLD7Tracker:
             confidence=confidence, num_frames=1, detection_class="club",
         )
 
-    def get_angle_for_shot(self, shot_timestamp: Optional[float] = None) -> Optional[KLD7Angle]:
+    def get_angle_for_shot(
+        self,
+        shot_timestamp: Optional[float] = None,
+        club=None,
+    ) -> Optional[KLD7Angle]:
         """Search the ring buffer for the ball launch angle.
 
         Uses distance-based detection: ball = fast targets at >3.8m.
+
+        Args:
+            shot_timestamp: Unix timestamp of shot detection (from OPS243).
+            club: ClubType enum value. When provided, tightens the angle gate
+                  to the physical range for that club, reducing false positives.
         """
-        return self._extract_ball(shot_timestamp)
+        angle_min, angle_max = self._angle_gate_for_club(club)
+        logger.debug("K-LD7 angle gate: club=%s  %.1f°–%.1f°", club, angle_min, angle_max)
+        return self._extract_ball(shot_timestamp, angle_min=angle_min, angle_max=angle_max)
+
+    def _angle_gate_for_club(self, club) -> Tuple[float, float]:
+        """Return (min_deg, max_deg) angle gate for the given ClubType (or None).
+
+        For horizontal orientation the angle represents left/right direction,
+        so negative values are valid — the minimum is unconstrained.
+        For vertical orientation negative angles are physically impossible
+        (ball below the ground), so the minimum is 0° by default.
+        """
+        if self.orientation != "vertical":
+            # Horizontal: no useful per-club gate, allow full left/right range
+            return (-90.0, 90.0)
+        if club is not None and club in self.CLUB_ANGLE_GATES:
+            return self.CLUB_ANGLE_GATES[club]
+        return (0.0, self.BALL_MAX_LAUNCH_ANGLE_DEG)
 
     def get_club_angle(self, shot_timestamp: Optional[float] = None) -> Optional[KLD7Angle]:
         """Search the ring buffer for the club angle of attack.
@@ -485,3 +550,50 @@ class KLD7Tracker:
     def reset(self):
         """Clear the ring buffer after a shot is processed."""
         self._ring_buffer.clear()
+
+
+def _build_club_angle_gates():
+    """Build the per-club launch angle gate table.
+
+    Returns a dict mapping ClubType → (min_deg, max_deg).
+    Ranges are based on PGA Tour / amateur TrackMan data with ~5° headroom.
+    Imported lazily to avoid a hard dependency at module import time.
+    """
+    try:
+        from openflight.launch_monitor import ClubType
+    except ImportError:
+        return {}
+
+    return {
+        # Driver: low, flat trajectory
+        ClubType.DRIVER:    (4.0,  22.0),
+        # Fairway woods
+        ClubType.WOOD_3:    (6.0,  25.0),
+        ClubType.WOOD_5:    (7.0,  26.0),
+        ClubType.WOOD_7:    (8.0,  27.0),
+        # Hybrids
+        ClubType.HYBRID_3:  (8.0,  27.0),
+        ClubType.HYBRID_5:  (9.0,  28.0),
+        ClubType.HYBRID_7:  (10.0, 30.0),
+        ClubType.HYBRID_9:  (11.0, 31.0),
+        # Long irons
+        ClubType.IRON_2:    (8.0,  28.0),
+        ClubType.IRON_3:    (9.0,  29.0),
+        ClubType.IRON_4:    (10.0, 30.0),
+        ClubType.IRON_5:    (11.0, 31.0),
+        # Mid irons
+        ClubType.IRON_6:    (12.0, 33.0),
+        ClubType.IRON_7:    (13.0, 34.0),
+        ClubType.IRON_8:    (15.0, 36.0),
+        ClubType.IRON_9:    (17.0, 38.0),
+        # Short irons / wedges — highest launch angles
+        ClubType.PW:        (20.0, 42.0),
+        ClubType.GW:        (22.0, 45.0),
+        ClubType.SW:        (24.0, 48.0),
+        ClubType.LW:        (26.0, 52.0),
+        # Unknown: fall back to generic gate (handled in _angle_gate_for_club)
+        ClubType.UNKNOWN:   (0.0,  40.0),
+    }
+
+
+KLD7Tracker.CLUB_ANGLE_GATES = _build_club_angle_gates()

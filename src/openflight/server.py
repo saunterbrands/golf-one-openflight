@@ -800,7 +800,8 @@ def on_shot_detected(shot: Shot):
             raw_buffer = kld7_tracker.snapshot_buffer()
 
             kld7_angle = kld7_tracker.get_angle_for_shot(
-                shot_timestamp=shot_ts
+                shot_timestamp=shot_ts,
+                club=shot.club,
             )
             if kld7_angle:
                 if kld7_angle.vertical_deg is not None:
