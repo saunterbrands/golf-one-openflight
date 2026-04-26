@@ -24,6 +24,8 @@ KLD7_ANGLE_OFFSET=""
 KLD7_HORIZONTAL=false
 KLD7_HORIZONTAL_PORT=""
 KLD7_HORIZONTAL_OFFSET=""
+GSPRO=""
+NO_GSPRO=false
 
 # Buffer split presets (pre/post trigger segments out of 32 total)
 # At 20ksps: each segment = 6.4ms, total buffer = 204.8ms
@@ -103,6 +105,14 @@ while [[ $# -gt 0 ]]; do
         --kld7-horizontal-offset)
             KLD7_HORIZONTAL_OFFSET="$2"
             shift 2
+            ;;
+        --gspro)
+            GSPRO="$2"
+            shift 2
+            ;;
+        --no-gspro)
+            NO_GSPRO=true
+            shift
             ;;
         --port|-p)
             PORT="$2"
@@ -218,6 +228,14 @@ if [ "$KLD7" = true ]; then
         SERVER_CMD="$SERVER_CMD --kld7-horizontal-port ${KLD7_HORIZONTAL_PORT:-/dev/kld7_horizontal}"
         SERVER_CMD="$SERVER_CMD --kld7-horizontal-offset ${KLD7_HORIZONTAL_OFFSET:-0}"
     fi
+fi
+
+# GSPro integration flags
+if [ -n "$GSPRO" ]; then
+    SERVER_CMD="$SERVER_CMD --gspro $GSPRO"
+fi
+if [ "$NO_GSPRO" = true ]; then
+    SERVER_CMD="$SERVER_CMD --no-gspro"
 fi
 
 # Start Grafana Alloy for log shipping (if installed and credentials configured)
