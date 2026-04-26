@@ -69,6 +69,8 @@ function AppContent() {
     radarConfig,
     cameraStatus,
     gsproStatus,
+    latestGSProSend,
+    latestGSProError,
     triggerDiagnostics,
     triggerStatus,
     clearSession,
@@ -231,7 +233,13 @@ function AppContent() {
         {currentView === 'live' && (
           <div className="live-view">
             {isNewShot && <div key={shotVersion} className="shot-flash" />}
-            <ShotDisplay key={shotVersion} shot={latestShot} animate={isNewShot} />
+            <ShotDisplay
+              key={shotVersion}
+              shot={latestShot}
+              animate={isNewShot}
+              gsproSend={latestGSProSend}
+              gsproError={latestGSProError}
+            />
             {mockMode && (
               <button className="simulate-button" onClick={simulateShot}>
                 Simulate Shot

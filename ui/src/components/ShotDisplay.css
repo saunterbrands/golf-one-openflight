@@ -401,6 +401,82 @@
   }
 }
 
+/* GSPro Provenance Panel */
+.gspro-provenance {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: rgba(245, 240, 230, 0.85);
+}
+
+.gspro-provenance--error {
+  background: rgba(231, 76, 60, 0.12);
+  color: #e74c3c;
+}
+
+.gspro-provenance__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.gspro-provenance__title {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  color: rgba(245, 240, 230, 0.7);
+}
+
+.gspro-provenance__summary {
+  font-size: 11px;
+  color: rgba(245, 240, 230, 0.6);
+}
+
+.gspro-provenance__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prov-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+}
+
+.prov-field__label {
+  color: rgba(245, 240, 230, 0.7);
+}
+
+.prov-field__badge {
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  color: white;
+}
+
+.prov-field--measured .prov-field__badge {
+  background: #1d7a3a;
+}
+
+.prov-field--estimated .prov-field__badge {
+  background: #b07c00;
+}
+
+.gspro-provenance__reason {
+  margin-left: 8px;
+  font-size: 11px;
+}
+
 /* Landscape 7" screen (800x480) */
 @media (max-height: 500px) {
   .shot-display {

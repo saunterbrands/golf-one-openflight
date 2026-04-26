@@ -55,6 +55,45 @@ export interface DebugShotLog {
   club: string;
 }
 
+export interface GSProSend {
+  payload: {
+    DeviceID: string;
+    Units: string;
+    ShotNumber: number;
+    APIversion: string;
+    BallData: {
+      Speed: number;
+      HLA: number;
+      VLA: number;
+      TotalSpin: number;
+      SpinAxis: number;
+      BackSpin: number;
+      SideSpin: number;
+      CarryDistance: number;
+    };
+    ClubData: {
+      Speed: number;
+      Path: number;
+      AngleOfAttack: number;
+      FaceToTarget: number;
+      Lie: number;
+      Loft: number;
+      SpeedAtImpact: number;
+      VerticalFaceImpact: number;
+      HorizontalFaceImpact: number;
+      ClosureRate: number;
+    };
+    ShotDataOptions: {
+      ContainsBallData: boolean;
+      ContainsClubData: boolean;
+      LaunchMonitorIsReady: boolean;
+      LaunchMonitorBallDetected: boolean;
+      IsHeartBeat: boolean;
+    };
+  };
+  provenance: Record<string, 'measured' | 'estimated'>;
+}
+
 export function useSocket() {
   const socketRef = useRef<Socket | null>(null);
   const { addShot, setShots, clearShots } = useShotContext();
@@ -92,6 +131,9 @@ export function useSocket() {
   });
   // GSPro connection state (null = not enabled / no events received yet)
   const [gsproStatus, setGsproStatus] = useState<GSProStatus | null>(null);
+  // GSPro per-shot send state (latest shot only)
+  const [latestGSProSend, setLatestGSProSend] = useState<GSProSend | null>(null);
+  const [latestGSProError, setLatestGSProError] = useState<string | null>(null);
   // Trigger diagnostics state
   const [triggerDiagnostics, setTriggerDiagnostics] = useState<TriggerDiagnostic[]>([]);
   const [triggerStatus, setTriggerStatus] = useState<TriggerStatus>({
@@ -202,6 +244,8 @@ export function useSocket() {
 
     newSocket.on('session_cleared', () => {
       clearShotsRef.current();
+      setLatestGSProSend(null);
+      setLatestGSProError(null);
     });
 
     newSocket.on('trigger_diagnostic', (data: TriggerDiagnostic) => {
@@ -223,6 +267,15 @@ export function useSocket() {
 
     newSocket.on('gspro_status', (data: GSProStatus) => {
       setGsproStatus(data);
+    });
+
+    newSocket.on('gspro_shot', (data: GSProSend) => {
+      setLatestGSProSend(data);
+      setLatestGSProError(null);
+    });
+
+    newSocket.on('gspro_send_failed', (data: { reason: string }) => {
+      setLatestGSProError(data.reason);
     });
 
     socketRef.current = newSocket;
@@ -275,6 +328,8 @@ export function useSocket() {
     radarConfig,
     cameraStatus,
     gsproStatus,
+    latestGSProSend,
+    latestGSProError,
     triggerDiagnostics,
     triggerStatus,
     clearSession,

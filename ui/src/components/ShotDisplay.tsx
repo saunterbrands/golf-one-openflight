@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Shot } from '../types/shot';
+import type { GSProSend } from '../hooks/useSocket';
 import { useUnitPreference } from '../state/useUnitPreference';
 import { formatCarryRange, formatDistance, formatSpeed, getDistanceUnit, getSpeedUnit } from '../utils/units';
 import './ShotDisplay.css';
@@ -7,6 +8,8 @@ import './ShotDisplay.css';
 interface ShotDisplayProps {
   shot: Shot | null;
   animate?: boolean;
+  gsproSend?: GSProSend | null;
+  gsproError?: string | null;
 }
 
 const GAUGE_MIN = 0;
@@ -126,7 +129,84 @@ function getLaunchAngleQuality(confidence: number | null): 'high' | 'medium' | '
   return 'low';
 }
 
-export function ShotDisplay({ shot, animate = false }: ShotDisplayProps) {
+function GSProProvenance({
+  send,
+  error,
+}: {
+  send: GSProSend | null;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <div className="gspro-provenance gspro-provenance--error">
+        <span className="gspro-provenance__title">Not sent to GSPro</span>
+        <span className="gspro-provenance__reason">{error}</span>
+      </div>
+    );
+  }
+  if (!send) return null;
+
+  const entries = Object.entries(send.provenance);
+  const measured = entries.filter(([, v]) => v === 'measured').length;
+  const estimated = entries.filter(([, v]) => v === 'estimated').length;
+  const allMeasured = estimated === 0;
+
+  // Field order for display — most informative first
+  const order = [
+    'BallData.Speed',
+    'BallData.VLA',
+    'BallData.HLA',
+    'BallData.TotalSpin',
+    'BallData.SpinAxis',
+    'BallData.BackSpin',
+    'BallData.SideSpin',
+    'BallData.CarryDistance',
+    'ClubData.Speed',
+    'ClubData.Path',
+  ];
+  const sorted = order.filter((k) => k in send.provenance);
+
+  const labelFor = (key: string): string => {
+    const map: Record<string, string> = {
+      'BallData.Speed': 'Ball Speed',
+      'BallData.VLA': 'V. Launch',
+      'BallData.HLA': 'H. Launch',
+      'BallData.TotalSpin': 'Total Spin',
+      'BallData.SpinAxis': 'Spin Axis',
+      'BallData.BackSpin': 'Back Spin',
+      'BallData.SideSpin': 'Side Spin',
+      'BallData.CarryDistance': 'Carry',
+      'ClubData.Speed': 'Club Speed',
+      'ClubData.Path': 'Club Path',
+    };
+    return map[key] ?? key;
+  };
+
+  return (
+    <div className="gspro-provenance">
+      <div className="gspro-provenance__header">
+        <span className="gspro-provenance__title">Sent to GSPro</span>
+        <span className="gspro-provenance__summary">
+          {allMeasured ? '✓ all measured' : `${measured} measured / ${estimated} estimated`}
+        </span>
+      </div>
+      <div className="gspro-provenance__fields">
+        {sorted.map((key) => (
+          <span
+            key={key}
+            className={`prov-field prov-field--${send.provenance[key]}`}
+            title={`${labelFor(key)}: ${send.provenance[key]}`}
+          >
+            <span className="prov-field__label">{labelFor(key)}</span>
+            <span className="prov-field__badge">{send.provenance[key] === 'measured' ? 'M' : 'E'}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ShotDisplay({ shot, animate = false, gsproSend, gsproError }: ShotDisplayProps) {
   const { unitSystem } = useUnitPreference();
   const carryRange = useMemo(() => {
     if (!shot) return null;
@@ -239,6 +319,9 @@ export function ShotDisplay({ shot, animate = false }: ShotDisplayProps) {
           />
         </div>
       </div>
+      {(gsproSend || gsproError) && (
+        <GSProProvenance send={gsproSend ?? null} error={gsproError ?? null} />
+      )}
     </div>
   );
 }
