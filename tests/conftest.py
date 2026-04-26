@@ -59,11 +59,13 @@ class MockGSProServer:
                     if not chunk:
                         break
                     self.received.append(chunk)
-                try:
-                    self._client_sock.close()
-                except OSError:
-                    pass
+                conn = self._client_sock
                 self._client_sock = None
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except OSError:
+                        pass
         finally:
             try:
                 self._sock.close()
