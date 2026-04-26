@@ -192,6 +192,17 @@ sudo vim /etc/alloy/credentials.env
 
 See [observability.md](observability.md) for full setup and LogQL queries.
 
+## Optional: GSPro integration
+
+To stream shots to GSPro, copy the example config and edit it:
+
+```bash
+cp config/gspro.example.json config/gspro.json
+# edit config/gspro.json — set host to the GSPro PC's IP
+```
+
+See [docs/gspro-integration.md](gspro-integration.md) for full setup.
+
 ## Troubleshooting
 
 ### Radar Not Detected

@@ -25,6 +25,7 @@ OpenFlight is an open-source golf launch monitor that uses Doppler radar to meas
 - **Club Path**: Horizontal aim direction measured by second K-LD7
 - **Spin Rate**: Via rolling buffer I/Q analysis (~50-60% detection rate)
 - **Carry Distance**: Computed from ball speed, launch angle, and spin
+- **GSPro integration** (optional): stream shots to [GSPro](https://gsprogolf.com/) over OpenConnectV1 — see [docs/gspro-integration.md](docs/gspro-integration.md)
 
 ### Hardware at a Glance
 
@@ -209,6 +210,7 @@ uv run pytest tests/ -v
 - **[Rolling Buffer & Spin Detection](docs/rolling_buffer_spin_detection.md)** — Spin measurement details
 - **[K-LD7 Ball Detection Theory](docs/kld7-ball-detection-theory.md)** — How angle detection works
 - **[K-LD7 Session Review](docs/kld7-session-review.md)** — Offline review workflow for session JSONL files
+- **[GSPro Integration](docs/gspro-integration.md)** — Stream shots to the GSPro simulator
 - **[Observability & Log Shipping](docs/observability.md)** — Ship logs to Grafana Cloud
 - **[Contributing Guide](CONTRIBUTING.md)** — How to contribute
 - **[Changelog](docs/CHANGELOG.md)** — Version history
