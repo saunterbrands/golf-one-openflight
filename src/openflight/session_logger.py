@@ -364,6 +364,51 @@ class SessionLogger:
             "launch_detected": launch_detected,
         })
 
+    def log_gspro_send(
+        self,
+        shot_number: int,
+        payload: dict,
+        provenance: Dict[str, str],
+    ) -> None:
+        """Log a shot payload sent to GSPro along with field provenance."""
+        if not self.enabled:
+            return
+        self._write_entry("gspro_send", {
+            "shot_number": shot_number,
+            "payload": payload,
+            "provenance": provenance,
+        })
+
+    def log_gspro_status(
+        self,
+        state: str,
+        host: str = "",
+        port: int = 0,
+        message: str = "",
+        attempt: int = 0,
+        next_retry_in_s: float = 0.0,
+    ) -> None:
+        """Log a GSPro connection state change."""
+        if not self.enabled:
+            return
+        self._write_entry("gspro_status", {
+            "state": state,
+            "host": host,
+            "port": port,
+            "message": message,
+            "attempt": attempt,
+            "next_retry_in_s": next_retry_in_s,
+        })
+
+    def log_gspro_player(self, handed: str, club: str) -> None:
+        """Log a GSPro player/club update (from a code-201 response)."""
+        if not self.enabled:
+            return
+        self._write_entry("gspro_player", {
+            "handed": handed,
+            "club": club,
+        })
+
     def log_kld7_buffer(
         self,
         shot_number: int,
