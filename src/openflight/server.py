@@ -955,21 +955,10 @@ def on_shot_detected(shot: Shot):
                             guard_details["expected_launch_deg"],
                             guard_details["allowed_delta_deg"],
                         )
-                if session_log and raw_buffer:
-                    session_log.log_kld7_buffer(
-                        shot_number=session_log.stats.get("shots_detected", 0) + 1,
-                        shot_timestamp=shot_ts,
-                        orientation="vertical",
-                        buffer_frames=raw_buffer,
-                        ball_angle={
-                            "vertical_deg": kld7_angle.vertical_deg,
-                            "confidence": kld7_angle.confidence,
-                            "detection_class": kld7_angle.detection_class,
-                            "magnitude": kld7_angle.magnitude,
-                            "num_frames": kld7_angle.num_frames,
-                        } if kld7_angle else None,
-                    )
-                # Club angle of attack (same RADC buffer, club speed from OPS)
+                # Club angle of attack (same RADC buffer, club speed from OPS).
+                # Compute BEFORE logging the buffer so the log entry can
+                # include club_angle alongside ball_angle for offline analysis.
+                club_angle_v = None
                 if shot.club_speed_mph:
                     club_angle_v = kld7_vertical.get_club_angle(club_speed_mph=shot.club_speed_mph)
                     if club_angle_v and club_angle_v.vertical_deg is not None:
@@ -985,6 +974,28 @@ def on_shot_detected(shot: Shot):
                         else:
                             logger.warning("[SERVER] Club AoA rejected: %.1f° outside plausible range",
                                            candidate_aoa)
+
+                if session_log and raw_buffer:
+                    session_log.log_kld7_buffer(
+                        shot_number=session_log.stats.get("shots_detected", 0) + 1,
+                        shot_timestamp=shot_ts,
+                        orientation="vertical",
+                        buffer_frames=raw_buffer,
+                        ball_angle={
+                            "vertical_deg": kld7_angle.vertical_deg,
+                            "confidence": kld7_angle.confidence,
+                            "detection_class": kld7_angle.detection_class,
+                            "magnitude": kld7_angle.magnitude,
+                            "num_frames": kld7_angle.num_frames,
+                        } if kld7_angle else None,
+                        club_angle={
+                            "vertical_deg": club_angle_v.vertical_deg,
+                            "confidence": club_angle_v.confidence,
+                            "detection_class": club_angle_v.detection_class,
+                            "magnitude": club_angle_v.magnitude,
+                            "num_frames": club_angle_v.num_frames,
+                        } if club_angle_v else None,
+                    )
 
                 kld7_vertical.reset()
 
@@ -1012,6 +1023,17 @@ def on_shot_detected(shot: Shot):
                             "[SERVER] Horizontal angle %.1f° rejected: exceeds ±15°",
                             kld7_angle_h.horizontal_deg,
                         )
+                # Club path (same RADC buffer, club speed from OPS).
+                # Compute BEFORE logging the buffer so the log entry can
+                # include club_angle alongside ball_angle for offline analysis.
+                club_angle_h = None
+                if shot.club_speed_mph:
+                    club_angle_h = kld7_horizontal.get_club_angle(club_speed_mph=shot.club_speed_mph)
+                    if club_angle_h and club_angle_h.horizontal_deg is not None:
+                        shot.club_path_deg = club_angle_h.horizontal_deg
+                        logger.info("[SERVER] Club path: %.1f° (conf=%.0f%%)",
+                                     club_angle_h.horizontal_deg, club_angle_h.confidence * 100)
+
                 if session_log and raw_buffer_h:
                     session_log.log_kld7_buffer(
                         shot_number=session_log.stats.get("shots_detected", 0) + 1,
@@ -1025,14 +1047,14 @@ def on_shot_detected(shot: Shot):
                             "magnitude": kld7_angle_h.magnitude,
                             "num_frames": kld7_angle_h.num_frames,
                         } if kld7_angle_h else None,
+                        club_angle={
+                            "horizontal_deg": club_angle_h.horizontal_deg,
+                            "confidence": club_angle_h.confidence,
+                            "detection_class": club_angle_h.detection_class,
+                            "magnitude": club_angle_h.magnitude,
+                            "num_frames": club_angle_h.num_frames,
+                        } if club_angle_h else None,
                     )
-                # Club path (same RADC buffer, club speed from OPS)
-                if shot.club_speed_mph:
-                    club_angle_h = kld7_horizontal.get_club_angle(club_speed_mph=shot.club_speed_mph)
-                    if club_angle_h and club_angle_h.horizontal_deg is not None:
-                        shot.club_path_deg = club_angle_h.horizontal_deg
-                        logger.info("[SERVER] Club path: %.1f° (conf=%.0f%%)",
-                                     club_angle_h.horizontal_deg, club_angle_h.confidence * 100)
 
                 kld7_horizontal.reset()
 

@@ -153,3 +153,75 @@ class TestLogTriggerDiagnostic:
 
         assert entry["all_outbound_speeds"] == []
         assert entry["all_inbound_speeds"] == []
+
+
+class TestLogKld7Buffer:
+    """Tests for the K-LD7 ring buffer logging method."""
+
+    def test_kld7_buffer_logs_ball_and_club_angles(self, tmp_path):
+        """Both ball_angle and club_angle should round-trip through the JSONL log.
+
+        Regression: server.py used to compute club_angle AFTER calling
+        log_kld7_buffer, so club_angle in every horizontal kld7_buffer log
+        entry was always None even when shot.club_path_deg was populated
+        downstream. This test guards the logger's end of the contract.
+        """
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        ball = {
+            "horizontal_deg": -3.5,
+            "confidence": 0.82,
+            "detection_class": "ball",
+            "magnitude": 12.4,
+            "num_frames": 3,
+        }
+        club = {
+            "horizontal_deg": -2.1,
+            "confidence": 0.65,
+            "detection_class": "club",
+            "magnitude": 8.7,
+            "num_frames": 2,
+        }
+        logger.log_kld7_buffer(
+            shot_number=1,
+            shot_timestamp=1234567890.0,
+            orientation="horizontal",
+            buffer_frames=[
+                {"timestamp": 1234567889.0, "tdat": None, "pdat": []},
+                {"timestamp": 1234567889.05, "tdat": None, "pdat": []},
+            ],
+            ball_angle=ball,
+            club_angle=club,
+        )
+
+        lines = logger.session_path.read_text().strip().split("\n")
+        entry = json.loads(lines[-1])
+
+        assert entry["type"] == "kld7_buffer"
+        assert entry["orientation"] == "horizontal"
+        assert entry["frame_count"] == 2
+        assert entry["ball_angle"] == ball
+        assert entry["club_angle"] == club, (
+            "club_angle must be preserved in the kld7_buffer log entry "
+            "so offline analysis can correlate it with the ball angle."
+        )
+
+    def test_kld7_buffer_club_angle_optional(self, tmp_path):
+        """Missing club_angle is allowed (e.g. shot before club_speed available)."""
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        logger.log_kld7_buffer(
+            shot_number=1,
+            shot_timestamp=1.0,
+            orientation="vertical",
+            buffer_frames=[],
+            ball_angle={"vertical_deg": 12.5, "confidence": 0.9,
+                        "detection_class": "ball", "magnitude": 15.0,
+                        "num_frames": 2},
+        )
+
+        entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
+        assert entry["ball_angle"]["vertical_deg"] == 12.5
+        assert entry["club_angle"] is None
