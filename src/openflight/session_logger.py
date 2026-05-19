@@ -12,12 +12,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .kld7.radc import RADC_PAYLOAD_BYTES
 from .ops243 import SpeedReading
 
 
 @dataclass
 class SessionMetadata:
     """Metadata about a logging session."""
+
     session_id: str
     start_time: str
     radar_port: Optional[str]
@@ -50,10 +52,7 @@ class SessionLogger:
     DEFAULT_LOG_DIR = Path.home() / "openflight_sessions"
 
     def __init__(
-        self,
-        log_dir: Optional[Path] = None,
-        location: str = "range",
-        enabled: bool = True
+        self, log_dir: Optional[Path] = None, location: str = "range", enabled: bool = True
     ):
         """
         Initialize session logger.
@@ -92,7 +91,7 @@ class SessionLogger:
         camera_model: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
         mode: str = "rolling-buffer",
-        trigger_type: Optional[str] = None
+        trigger_type: Optional[str] = None,
     ) -> str:
         """
         Start a new logging session.
@@ -146,7 +145,7 @@ class SessionLogger:
             camera_model=camera_model,
             config=config or {},
             mode=mode,
-            trigger_type=trigger_type
+            trigger_type=trigger_type,
         )
 
         self._write_entry("session_start", asdict(metadata))
@@ -157,8 +156,15 @@ class SessionLogger:
 
         return self._session_id
 
-    def log_connection(self, device: str, port: str, baud: int = 0,
-                       firmware: str = None, radc_available: bool = None, **kwargs):
+    def log_connection(
+        self,
+        device: str,
+        port: str,
+        baud: int = 0,
+        firmware: str = None,
+        radc_available: bool = None,
+        **kwargs,
+    ):
         """Log device connection details."""
         if not self.enabled:
             return
@@ -186,7 +192,7 @@ class SessionLogger:
         file_handler = logging.FileHandler(self._raw_path)
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(
-            logging.Formatter('%(asctime)s.%(msecs)03d - %(message)s', datefmt='%H:%M:%S')
+            logging.Formatter("%(asctime)s.%(msecs)03d - %(message)s", datefmt="%H:%M:%S")
         )
 
         self._raw_logger.addHandler(file_handler)
@@ -209,7 +215,8 @@ class SessionLogger:
             "stats": self._stats.copy(),
             "shot_rate": (
                 self._stats["shots_detected"] / max(1, self._stats["readings_accepted"])
-                if self._stats["readings_accepted"] > 0 else 0
+                if self._stats["readings_accepted"] > 0
+                else 0
             ),
         }
 
@@ -240,11 +247,7 @@ class SessionLogger:
         if not self._session_file:
             return
 
-        entry = {
-            "ts": datetime.now().isoformat(),
-            "type": entry_type,
-            **data
-        }
+        entry = {"ts": datetime.now().isoformat(), "type": entry_type, **data}
 
         self._session_file.write(json.dumps(entry) + "\n")
         self._session_file.flush()
@@ -256,11 +259,14 @@ class SessionLogger:
 
         self._stats["readings_accepted"] += 1
 
-        self._write_entry("reading_accepted", {
-            "speed": reading.speed,
-            "direction": reading.direction.value,
-            "magnitude": reading.magnitude,
-        })
+        self._write_entry(
+            "reading_accepted",
+            {
+                "speed": reading.speed,
+                "direction": reading.direction.value,
+                "magnitude": reading.magnitude,
+            },
+        )
 
     def log_shot(
         self,
@@ -356,8 +362,7 @@ class SessionLogger:
             "spin_modulation_depth": spin_modulation_depth,
             "spin_peak_freq_hz": spin_peak_freq_hz,
             "spin_candidate_rpm": (
-                round(spin_peak_freq_hz * 60)
-                if spin_peak_freq_hz is not None else None
+                round(spin_peak_freq_hz * 60) if spin_peak_freq_hz is not None else None
             ),
             "spin_seam_cycles": spin_seam_cycles,
             "spin_at_lower_rail": spin_at_lower_rail,
@@ -400,20 +405,23 @@ class SessionLogger:
         launch_angle_horizontal: Optional[float],
         confidence: Optional[float],
         positions_tracked: int,
-        launch_detected: bool
+        launch_detected: bool,
     ):
         """Log camera tracking data for a shot."""
         if not self.enabled:
             return
 
-        self._write_entry("shot_camera", {
-            "shot_number": shot_number,
-            "launch_angle_vertical": launch_angle_vertical,
-            "launch_angle_horizontal": launch_angle_horizontal,
-            "confidence": confidence,
-            "positions_tracked": positions_tracked,
-            "launch_detected": launch_detected,
-        })
+        self._write_entry(
+            "shot_camera",
+            {
+                "shot_number": shot_number,
+                "launch_angle_vertical": launch_angle_vertical,
+                "launch_angle_horizontal": launch_angle_horizontal,
+                "confidence": confidence,
+                "positions_tracked": positions_tracked,
+                "launch_detected": launch_detected,
+            },
+        )
 
     def log_kld7_buffer(
         self,
@@ -423,30 +431,64 @@ class SessionLogger:
         buffer_frames: list,
         ball_angle: Optional[Dict] = None,
         club_angle: Optional[Dict] = None,
+        raw_payload_expected: Optional[bool] = None,
     ):
         """Log raw K-LD7 ring buffer alongside OPS243 shot for correlation analysis."""
         if not self.enabled:
             return
 
-        self._write_entry("kld7_buffer", {
-            "shot_number": shot_number,
-            "shot_timestamp": shot_timestamp,
-            "orientation": orientation,
-            "frame_count": len(buffer_frames),
-            "frames": buffer_frames,
-            "ball_angle": ball_angle,
-            "club_angle": club_angle,
-        })
+        radc_frame_count = sum(
+            1 for frame in buffer_frames if frame.get("has_radc") or frame.get("radc_b64")
+        )
+        radc_payload_count = sum(1 for frame in buffer_frames if frame.get("radc_b64"))
+        radc_payload_valid_count = sum(
+            1
+            for frame in buffer_frames
+            if frame.get("radc_b64") and frame.get("radc_payload_bytes") == RADC_PAYLOAD_BYTES
+        )
+        radc_payload_invalid_count = sum(
+            1
+            for frame in buffer_frames
+            if frame.get("radc_b64")
+            and frame.get("radc_payload_bytes") is not None
+            and frame.get("radc_payload_bytes") != RADC_PAYLOAD_BYTES
+        )
+        radc_payload_complete = (
+            radc_frame_count > 0
+            and radc_payload_count == radc_frame_count
+            and radc_payload_invalid_count == 0
+        )
+        self._write_entry(
+            "kld7_buffer",
+            {
+                "shot_number": shot_number,
+                "shot_timestamp": shot_timestamp,
+                "orientation": orientation,
+                "frame_count": len(buffer_frames),
+                "radc_frame_count": radc_frame_count,
+                "radc_payload_count": radc_payload_count,
+                "radc_payload_valid_count": radc_payload_valid_count,
+                "radc_payload_invalid_count": radc_payload_invalid_count,
+                "radc_payload_expected": raw_payload_expected,
+                "radc_payload_complete": radc_payload_complete,
+                "frames": buffer_frames,
+                "ball_angle": ball_angle,
+                "club_angle": club_angle,
+            },
+        )
 
     def log_config_change(self, config: Dict[str, Any], source: str = "user"):
         """Log a radar configuration change."""
         if not self.enabled:
             return
 
-        self._write_entry("config_change", {
-            "config": config,
-            "source": source,
-        })
+        self._write_entry(
+            "config_change",
+            {
+                "config": config,
+                "source": source,
+            },
+        )
 
     def log_iq_reading(
         self,
@@ -456,7 +498,7 @@ class SessionLogger:
         snr: float,
         peak_bin: int,
         cfar_validated: bool,
-        block_count: int
+        block_count: int,
     ):
         """
         Log a speed reading detected from I/Q streaming mode.
@@ -473,21 +515,20 @@ class SessionLogger:
         if not self.enabled:
             return
 
-        self._write_entry("iq_reading", {
-            "speed_mph": speed_mph,
-            "direction": direction,
-            "magnitude": magnitude,
-            "snr": snr,
-            "peak_bin": peak_bin,
-            "cfar_validated": cfar_validated,
-            "block_count": block_count,
-        })
+        self._write_entry(
+            "iq_reading",
+            {
+                "speed_mph": speed_mph,
+                "direction": direction,
+                "magnitude": magnitude,
+                "snr": snr,
+                "peak_bin": peak_bin,
+                "cfar_validated": cfar_validated,
+                "block_count": block_count,
+            },
+        )
 
-    def log_iq_blocks(
-        self,
-        shot_number: int,
-        blocks: List[Dict[str, Any]]
-    ):
+    def log_iq_blocks(self, shot_number: int, blocks: List[Dict[str, Any]]):
         """
         Log raw I/Q blocks for a shot (for post-session analysis).
 
@@ -498,11 +539,14 @@ class SessionLogger:
         if not self.enabled:
             return
 
-        self._write_entry("iq_blocks", {
-            "shot_number": shot_number,
-            "block_count": len(blocks),
-            "blocks": blocks,
-        })
+        self._write_entry(
+            "iq_blocks",
+            {
+                "shot_number": shot_number,
+                "block_count": len(blocks),
+                "blocks": blocks,
+            },
+        )
 
     def log_trigger_event(
         self,
@@ -542,14 +586,17 @@ class SessionLogger:
         else:
             self._stats["triggers_rejected"] += 1
 
-        self._write_entry("trigger_event", {
-            "trigger_type": trigger_type,
-            "accepted": accepted,
-            "reason": reason,
-            "peak_speed_mph": peak_speed_mph,
-            "readings_count": readings_count,
-            "latency_ms": latency_ms,
-        })
+        self._write_entry(
+            "trigger_event",
+            {
+                "trigger_type": trigger_type,
+                "accepted": accepted,
+                "reason": reason,
+                "peak_speed_mph": peak_speed_mph,
+                "readings_count": readings_count,
+                "latency_ms": latency_ms,
+            },
+        )
 
     def log_trigger_diagnostic(
         self,
@@ -613,24 +660,27 @@ class SessionLogger:
         else:
             self._stats["triggers_rejected"] += 1
 
-        self._write_entry("trigger_diagnostic", {
-            "trigger_type": trigger_type,
-            "accepted": accepted,
-            "reason": reason,
-            "response_bytes": response_bytes,
-            "total_readings": total_readings,
-            "outbound_readings": outbound_readings,
-            "inbound_readings": inbound_readings,
-            "peak_outbound_mph": peak_outbound_mph,
-            "peak_inbound_mph": peak_inbound_mph,
-            "all_outbound_speeds": all_outbound_speeds or [],
-            "all_inbound_speeds": all_inbound_speeds or [],
-            "ball_speed_mph": ball_speed_mph,
-            "club_speed_mph": club_speed_mph,
-            "spin_rpm": spin_rpm,
-            "carry_yards": carry_yards,
-            "latency_ms": latency_ms,
-        })
+        self._write_entry(
+            "trigger_diagnostic",
+            {
+                "trigger_type": trigger_type,
+                "accepted": accepted,
+                "reason": reason,
+                "response_bytes": response_bytes,
+                "total_readings": total_readings,
+                "outbound_readings": outbound_readings,
+                "inbound_readings": inbound_readings,
+                "peak_outbound_mph": peak_outbound_mph,
+                "peak_inbound_mph": peak_inbound_mph,
+                "all_outbound_speeds": all_outbound_speeds or [],
+                "all_inbound_speeds": all_inbound_speeds or [],
+                "ball_speed_mph": ball_speed_mph,
+                "club_speed_mph": club_speed_mph,
+                "spin_rpm": spin_rpm,
+                "carry_yards": carry_yards,
+                "latency_ms": latency_ms,
+            },
+        )
 
     def log_rolling_buffer_capture(
         self,
@@ -701,41 +751,43 @@ class SessionLogger:
         if not self.enabled:
             return
 
-        self._write_entry("rolling_buffer_capture", {
-            "shot_number": shot_number,
-            "sample_time": sample_time,
-            "trigger_time": trigger_time,
-            "trigger_offset_ms": (trigger_time - sample_time) * 1000,
-            "sample_count": len(i_samples),
-            "i_samples": i_samples,
-            "q_samples": q_samples,
-            "ball_speed_mph": ball_speed_mph,
-            "club_speed_mph": club_speed_mph,
-            "ball_timestamp_ms": ball_timestamp_ms,
-            "club_timestamp_ms": club_timestamp_ms,
-            "trigger_latency_ms": trigger_latency_ms,
-            "smash_factor": smash_factor,
-            "spin_rpm": spin_rpm,
-            "spin_confidence": spin_confidence,
-            "spin_quality": spin_quality,
-            "spin_snr": spin_snr,
-            "spin_modulation_depth": spin_modulation_depth,
-            "spin_peak_freq_hz": spin_peak_freq_hz,
-            "spin_candidate_rpm": (
-                round(spin_peak_freq_hz * 60)
-                if spin_peak_freq_hz is not None else None
-            ),
-            "spin_seam_cycles": spin_seam_cycles,
-            "spin_at_lower_rail": spin_at_lower_rail,
-            "spin_at_upper_rail": spin_at_upper_rail,
-            "spin_candidates": spin_candidates,
-            "spin_phase_method": spin_phase_method,
-            "spin_phase_rpm": spin_phase_rpm,
-            "spin_phase_snr": spin_phase_snr,
-            "spin_phase_agreement_pct": spin_phase_agreement_pct,
-            "spin_phase_confirmed": spin_phase_confirmed,
-            "spin_rejection_reason": spin_rejection_reason,
-        })
+        self._write_entry(
+            "rolling_buffer_capture",
+            {
+                "shot_number": shot_number,
+                "sample_time": sample_time,
+                "trigger_time": trigger_time,
+                "trigger_offset_ms": (trigger_time - sample_time) * 1000,
+                "sample_count": len(i_samples),
+                "i_samples": i_samples,
+                "q_samples": q_samples,
+                "ball_speed_mph": ball_speed_mph,
+                "club_speed_mph": club_speed_mph,
+                "ball_timestamp_ms": ball_timestamp_ms,
+                "club_timestamp_ms": club_timestamp_ms,
+                "trigger_latency_ms": trigger_latency_ms,
+                "smash_factor": smash_factor,
+                "spin_rpm": spin_rpm,
+                "spin_confidence": spin_confidence,
+                "spin_quality": spin_quality,
+                "spin_snr": spin_snr,
+                "spin_modulation_depth": spin_modulation_depth,
+                "spin_peak_freq_hz": spin_peak_freq_hz,
+                "spin_candidate_rpm": (
+                    round(spin_peak_freq_hz * 60) if spin_peak_freq_hz is not None else None
+                ),
+                "spin_seam_cycles": spin_seam_cycles,
+                "spin_at_lower_rail": spin_at_lower_rail,
+                "spin_at_upper_rail": spin_at_upper_rail,
+                "spin_candidates": spin_candidates,
+                "spin_phase_method": spin_phase_method,
+                "spin_phase_rpm": spin_phase_rpm,
+                "spin_phase_snr": spin_phase_snr,
+                "spin_phase_agreement_pct": spin_phase_agreement_pct,
+                "spin_phase_confirmed": spin_phase_confirmed,
+                "spin_rejection_reason": spin_rejection_reason,
+            },
+        )
 
     def log_error(self, error: str, context: Optional[Dict] = None):
         """Log an error."""
@@ -744,10 +796,13 @@ class SessionLogger:
 
         self._stats["errors"] += 1
 
-        self._write_entry("error", {
-            "error": error,
-            "context": context or {},
-        })
+        self._write_entry(
+            "error",
+            {
+                "error": error,
+                "context": context or {},
+            },
+        )
 
     @property
     def session_path(self) -> Optional[Path]:
@@ -780,9 +835,7 @@ def get_session_logger() -> Optional[SessionLogger]:
 
 
 def init_session_logger(
-    log_dir: Optional[Path] = None,
-    location: str = "range",
-    enabled: bool = True
+    log_dir: Optional[Path] = None, location: str = "range", enabled: bool = True
 ) -> SessionLogger:
     """
     Initialize and return the global session logger.

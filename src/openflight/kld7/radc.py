@@ -55,9 +55,7 @@ def parse_radc_payload(payload: bytes) -> dict[str, np.ndarray]:
         [2560:3072] F1 Freq B — Q channel
     """
     if len(payload) != RADC_PAYLOAD_BYTES:
-        raise ValueError(
-            f"RADC payload must be {RADC_PAYLOAD_BYTES} bytes, got {len(payload)}"
-        )
+        raise ValueError(f"RADC payload must be {RADC_PAYLOAD_BYTES} bytes, got {len(payload)}")
     seg = 512  # bytes per segment
     return {
         "f1a_i": np.frombuffer(payload[0:seg], dtype=np.uint16).copy(),
@@ -80,7 +78,9 @@ def to_complex_iq(i_channel: np.ndarray, q_channel: np.ndarray) -> np.ndarray:
     return i_float + 1j * q_float
 
 
-def compute_spectrum(iq: np.ndarray, fft_size: int = 2048, dc_mask_bins: int = DC_MASK_BINS) -> np.ndarray:
+def compute_spectrum(
+    iq: np.ndarray, fft_size: int = 2048, dc_mask_bins: int = DC_MASK_BINS
+) -> np.ndarray:
     """Compute magnitude spectrum from complex I/Q with Hann window and zero-padding.
 
     Args:
@@ -103,7 +103,9 @@ def compute_spectrum(iq: np.ndarray, fft_size: int = 2048, dc_mask_bins: int = D
     return magnitude
 
 
-def compute_fft_complex(iq: np.ndarray, fft_size: int = 2048, dc_mask_bins: int = DC_MASK_BINS) -> np.ndarray:
+def compute_fft_complex(
+    iq: np.ndarray, fft_size: int = 2048, dc_mask_bins: int = DC_MASK_BINS
+) -> np.ndarray:
     """Compute complex FFT output (not magnitude) for phase-based processing."""
     windowed = iq * np.hanning(len(iq))
     padded = np.zeros(fft_size, dtype=np.complex128)
@@ -258,7 +260,9 @@ def bin_to_velocity_kmh(bin_index: int, fft_size: int, max_speed_kmh: float) -> 
         return (bin_index - fft_size) * max_speed_kmh / (fft_size // 2)
 
 
-def _velocity_to_bin(velocity_kmh: float, fft_size: int = 2048, max_speed_kmh: float = 100.0) -> int:
+def _velocity_to_bin(
+    velocity_kmh: float, fft_size: int = 2048, max_speed_kmh: float = 100.0
+) -> int:
     """Convert velocity in km/h to FFT bin index."""
     if velocity_kmh >= 0:
         return int(velocity_kmh * (fft_size // 2) / max_speed_kmh)
@@ -299,10 +303,12 @@ def default_ball_bin_ranges(
     max_speed_kmh: float = 100.0,
 ) -> list[tuple[int, int]]:
     """Return the broad default ball velocity band used without OPS243 anchoring."""
-    return [(
-        _velocity_to_bin(DEFAULT_BALL_ALIASED_MIN_KMH, fft_size, max_speed_kmh),
-        _velocity_to_bin(DEFAULT_BALL_ALIASED_MAX_KMH, fft_size, max_speed_kmh),
-    )]
+    return [
+        (
+            _velocity_to_bin(DEFAULT_BALL_ALIASED_MIN_KMH, fft_size, max_speed_kmh),
+            _velocity_to_bin(DEFAULT_BALL_ALIASED_MAX_KMH, fft_size, max_speed_kmh),
+        )
+    ]
 
 
 def ball_bin_range_from_speed(
@@ -527,10 +533,9 @@ def _find_peak_near_expected_bin(
         if sub_hi <= sub_lo:
             continue
         indices = np.arange(sub_lo, sub_hi, dtype=int)
-        mask = np.array([
-            circular_bin_distance(idx, expected_bin, fft_size) <= tolerance
-            for idx in indices
-        ])
+        mask = np.array(
+            [circular_bin_distance(idx, expected_bin, fft_size) <= tolerance for idx in indices]
+        )
         if not mask.any():
             continue
         near_indices = indices[mask]
@@ -799,9 +804,7 @@ def radc_frame_diagnostics(
     peak_velocity_kmh = bin_to_velocity_kmh(peak_bin, fft_size, max_speed_kmh)
     peak_ball_speed_mph = (2.0 * max_speed_kmh + peak_velocity_kmh) / 1.609
     speed_error_mph = (
-        peak_ball_speed_mph - ops243_ball_speed_mph
-        if ops243_ball_speed_mph is not None
-        else None
+        peak_ball_speed_mph - ops243_ball_speed_mph if ops243_ball_speed_mph is not None else None
     )
 
     if snr_linear < snr_warn_floor:
@@ -888,26 +891,20 @@ def summarize_radc_diagnostics(
         "radc_frame_count": sum(1 for d in diagnostics if d.has_radc),
         "valid_payload_count": len(valid),
         "peak_frame_count": len(peaks),
-        "target_bands": [list(b) for b in diagnostics[0].target_bands]
-        if diagnostics
-        else [],
+        "target_bands": [list(b) for b in diagnostics[0].target_bands] if diagnostics else [],
         "expected_bin": diagnostics[0].expected_bin if diagnostics else None,
         "median_snr_db": _median_or_none([d.snr_db for d in peaks]),
         "max_snr_db": float(max((d.snr_db for d in peaks), default=0.0)),
-        "median_phase_coherence": _median_or_none([
-            d.phase_coherence for d in peaks if d.phase_coherence is not None
-        ]),
-        "median_abs_bin_error": _median_or_none([
-            float(d.bin_error) for d in peaks if d.bin_error is not None
-        ]),
-        "median_abs_speed_error_mph": _median_or_none([
-            abs(float(d.speed_error_mph))
-            for d in peaks
-            if d.speed_error_mph is not None
-        ]),
-        "median_peak_width_bins": _median_or_none([
-            float(d.peak_width_bins) for d in peaks
-        ]),
+        "median_phase_coherence": _median_or_none(
+            [d.phase_coherence for d in peaks if d.phase_coherence is not None]
+        ),
+        "median_abs_bin_error": _median_or_none(
+            [float(d.bin_error) for d in peaks if d.bin_error is not None]
+        ),
+        "median_abs_speed_error_mph": _median_or_none(
+            [abs(float(d.speed_error_mph)) for d in peaks if d.speed_error_mph is not None]
+        ),
+        "median_peak_width_bins": _median_or_none([float(d.peak_width_bins) for d in peaks]),
         "peak_bin_histogram_top": peak_bin_histogram,
         "channel_clip_max": channel_clip_max,
         "warnings_by_type": warnings_by_type,
@@ -920,8 +917,7 @@ def radc_capture_diagnostics(
 ) -> tuple[list[RADCFrameDiagnostics], dict[str, object]]:
     """Run raw ADC diagnostics for a capture and return rows plus summary."""
     diagnostics = [
-        radc_frame_diagnostics(frame, frame_index=i, **kwargs)
-        for i, frame in enumerate(frames)
+        radc_frame_diagnostics(frame, frame_index=i, **kwargs) for i, frame in enumerate(frames)
     ]
     return diagnostics, summarize_radc_diagnostics(diagnostics)
 
@@ -960,14 +956,12 @@ def find_impact_frames(
             continue
         spec = compute_spectrum(iq, fft_size=fft_size)
         # Energy in positive high-velocity bins (club swing)
-        pos_energy = float(np.sum(spec[min_velocity_bin: fft_size // 2] ** 2))
+        pos_energy = float(np.sum(spec[min_velocity_bin : fft_size // 2] ** 2))
         # Energy in aliased negative-velocity bins (ball)
         if ball_bands:
-            neg_energy = sum(
-                float(np.sum(spec[lo:hi] ** 2)) for lo, hi in ball_bands
-            )
+            neg_energy = sum(float(np.sum(spec[lo:hi] ** 2)) for lo, hi in ball_bands)
         else:
-            neg_energy = float(np.sum(spec[fft_size // 2 + min_velocity_bin:] ** 2))
+            neg_energy = float(np.sum(spec[fft_size // 2 + min_velocity_bin :] ** 2))
         energies.append(pos_energy + neg_energy)
 
     energies = np.array(energies)
@@ -996,6 +990,8 @@ def extract_launch_angle(
     ops_bin_outlier_tol: int = 25,
     ops_bin_outlier_penalty: float = 10.0,
     centroid_floor_frac: float = 0.5,
+    ops_anchored_peak_min_snr: float = OPS_ANCHORED_PEAK_MIN_SNR,
+    horizontal_angle_limit_deg: float = 15.0,
 ) -> list[dict]:
     """Extract vertical launch angle per shot from RADC frames.
 
@@ -1040,6 +1036,14 @@ def extract_launch_angle(
             per-frame magnitude²-weighted angle centroid (default 0.5,
             i.e. all bins above the half-power point of the peak). Set
             to 1.0 to revert to single-peak-bin angle extraction.
+        ops_anchored_peak_min_snr: Minimum linear SNR required for the
+            OPS-expected local peak before using that frame. Default
+            preserves production behavior; lower experimental replay
+            values can admit weak near-OPS horizontal peaks.
+        horizontal_angle_limit_deg: Symmetric horizontal bound in degrees
+            used to reject obvious side-angle false positives. Default
+            remains ±15° for production; experimental TrackMan replay can
+            raise this when validating wider horizontal launch targets.
 
     Returns a list of shot dicts, one per detected shot. Each contains
     launch_angle_deg, ball_speed_mph, confidence, and supporting data.
@@ -1053,12 +1057,17 @@ def extract_launch_angle(
     ball_bands: list[tuple[int, int]]
     if ops243_ball_speed_mph is not None:
         ball_bands = ball_bin_range_from_speed(
-            ops243_ball_speed_mph, speed_tolerance_mph, fft_size, max_speed_kmh,
+            ops243_ball_speed_mph,
+            speed_tolerance_mph,
+            fft_size,
+            max_speed_kmh,
         )
         # Where the ball *should* peak, given the OPS243 speed. Used as a
         # soft anchor for the SNR²-weighted average below.
         ops_expected_bin: int | None = expected_ball_bin_from_speed(
-            ops243_ball_speed_mph, fft_size, max_speed_kmh,
+            ops243_ball_speed_mph,
+            fft_size,
+            max_speed_kmh,
         )
     else:
         # Broad default ball velocity range for offline analysis.
@@ -1068,17 +1077,20 @@ def extract_launch_angle(
 
     min_velocity_bin = 150  # skip low-velocity body/clutter
     impact_indices = find_impact_frames(
-        frames, fft_size=fft_size,
+        frames,
+        fft_size=fft_size,
         min_velocity_bin=min_velocity_bin,
         energy_threshold=impact_energy_threshold,
         ball_bands=ball_bands,
     )
     if not impact_indices:
         import logging
+
         logging.getLogger("openflight.kld7.radc").info(
-            "[KLD7-RADC] No impact frames found (energy_threshold=%.1f, "
-            "ball_bands=%s, %d frames)",
-            impact_energy_threshold, ball_bands, len(frames),
+            "[KLD7-RADC] No impact frames found (energy_threshold=%.1f, ball_bands=%s, %d frames)",
+            impact_energy_threshold,
+            ball_bands,
+            len(frames),
         )
         return []
 
@@ -1136,16 +1148,12 @@ def extract_launch_angle(
                     fft_size,
                 )
                 anchored_snr = peak_val / full_median if full_median > 0 else 0.0
-                if peak_bin is None or anchored_snr < OPS_ANCHORED_PEAK_MIN_SNR:
+                if peak_bin is None or anchored_snr < ops_anchored_peak_min_snr:
                     if orientation == "horizontal":
                         continue
-                    peak_bin, peak_val, peak_band = _find_peak_in_bands(
-                        spec, tuple(ball_bands)
-                    )
+                    peak_bin, peak_val, peak_band = _find_peak_in_bands(spec, tuple(ball_bands))
             else:
-                peak_bin, peak_val, peak_band = _find_peak_in_bands(
-                    spec, tuple(ball_bands)
-                )
+                peak_bin, peak_val, peak_band = _find_peak_in_bands(spec, tuple(ball_bands))
 
             if peak_val <= 0 or peak_bin is None:
                 continue
@@ -1192,8 +1200,7 @@ def extract_launch_angle(
                     neigh_w_sum = float(neigh_w.sum())
                     if neigh_w_sum > 0:
                         centroid_angle = float(
-                            np.sum(angles[neigh_indices] * neigh_w)
-                            / neigh_w_sum
+                            np.sum(angles[neigh_indices] * neigh_w) / neigh_w_sum
                         )
                     else:
                         centroid_angle = float(angles[peak_bin])
@@ -1253,16 +1260,15 @@ def extract_launch_angle(
         # SNR²-weighted average of surviving peaks. When the OPS-expected
         # bin is known, frames whose peak bin is far from it (likely
         # clutter latched onto a persistent stripe) get a weight penalty.
-        w = clean_snrs ** 2
+        w = clean_snrs**2
         if (
             ops_expected_bin is not None
             and ops_bin_outlier_penalty > 1.0
             and ops_bin_outlier_tol >= 0
         ):
-            bin_distances = np.array([
-                circular_bin_distance(b, ops_expected_bin, fft_size)
-                for b in clean_bins
-            ])
+            bin_distances = np.array(
+                [circular_bin_distance(b, ops_expected_bin, fft_size) for b in clean_bins]
+            )
             outlier = bin_distances > ops_bin_outlier_tol
             if outlier.any():
                 w = w.astype(float).copy()
@@ -1280,8 +1286,11 @@ def extract_launch_angle(
                     "bins from expected bin %d (peak bins: %s, weight "
                     "/%.1f). High rate suggests a radar mounting or "
                     "clutter issue — see docs/kld7-troubleshooting.md.",
-                    penalty_count, len(clean_bins), pct,
-                    ops_bin_outlier_tol, ops_expected_bin,
+                    penalty_count,
+                    len(clean_bins),
+                    pct,
+                    ops_bin_outlier_tol,
+                    ops_expected_bin,
                     list(map(int, clean_bins)),
                     ops_bin_outlier_penalty,
                 )
@@ -1301,10 +1310,12 @@ def extract_launch_angle(
                 corrected_angle,
             )
             continue
-        if orientation == "horizontal" and abs(corrected_angle) > 15.0:
+        horizontal_limit = max(float(horizontal_angle_limit_deg), 0.0)
+        if orientation == "horizontal" and abs(corrected_angle) > horizontal_limit:
             logger.info(
-                "[RADC] Horizontal angle %.1f° outside ±15° — rejected",
+                "[RADC] Horizontal angle %.1f° outside ±%.1f° — rejected",
                 corrected_angle,
+                horizontal_limit,
             )
             continue
 
@@ -1325,20 +1336,24 @@ def extract_launch_angle(
         else:
             # Multi-frame: SNR + angle consistency bonus
             std_score = max(0.0, 1.0 - angle_std / 15.0)
-            confidence = round(snr_score * 0.5 + std_score * 0.3 + min(frame_count / 3.0, 1.0) * 0.2, 2)
+            confidence = round(
+                snr_score * 0.5 + std_score * 0.3 + min(frame_count / 3.0, 1.0) * 0.2, 2
+            )
 
-        results.append({
-            "shot_index": shot_idx,
-            "launch_angle_deg": round(corrected_angle, 1),
-            "raw_angle_deg": round(weighted_angle, 1),
-            "angle_offset_deg": angle_offset_deg,
-            "ball_speed_mph": round(avg_speed_mph, 1),
-            "confidence": confidence,
-            "detection_count": len(peak_angles),
-            "frame_count": frame_count,
-            "angle_std_deg": round(angle_std, 1),
-            "avg_snr_db": round(avg_snr, 1),
-            "impact_frames": impact_group,
-        })
+        results.append(
+            {
+                "shot_index": shot_idx,
+                "launch_angle_deg": round(corrected_angle, 1),
+                "raw_angle_deg": round(weighted_angle, 1),
+                "angle_offset_deg": angle_offset_deg,
+                "ball_speed_mph": round(avg_speed_mph, 1),
+                "confidence": confidence,
+                "detection_count": len(peak_angles),
+                "frame_count": frame_count,
+                "angle_std_deg": round(angle_std, 1),
+                "avg_snr_db": round(avg_snr, 1),
+                "impact_frames": impact_group,
+            }
+        )
 
     return results

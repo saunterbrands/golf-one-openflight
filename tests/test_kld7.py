@@ -32,12 +32,16 @@ class TestKLD7Types:
         assert len(frame_with_radc.radc) == 3072
 
     def test_kld7_angle_vertical(self):
-        angle = KLD7Angle(vertical_deg=12.5, distance_m=2.0, magnitude=5000, confidence=0.8, num_frames=3)
+        angle = KLD7Angle(
+            vertical_deg=12.5, distance_m=2.0, magnitude=5000, confidence=0.8, num_frames=3
+        )
         assert angle.vertical_deg == 12.5
         assert angle.horizontal_deg is None
 
     def test_kld7_angle_horizontal(self):
-        angle = KLD7Angle(horizontal_deg=-3.2, distance_m=1.5, magnitude=4000, confidence=0.7, num_frames=2)
+        angle = KLD7Angle(
+            horizontal_deg=-3.2, distance_m=1.5, magnitude=4000, confidence=0.7, num_frames=2
+        )
         assert angle.horizontal_deg == -3.2
         assert angle.vertical_deg is None
 
@@ -63,7 +67,7 @@ class TestKLD7TrackerRingBuffer:
     def test_ring_buffer_max_size(self):
         tracker = self._make_tracker(orientation="horizontal")
         tracker.max_buffer_frames = 10
-        tracker._ring_buffer = __import__('collections').deque(maxlen=10)
+        tracker._ring_buffer = __import__("collections").deque(maxlen=10)
         now = time.time()
         for i in range(20):
             tracker._add_frame(KLD7Frame(timestamp=now + i * 0.03))
@@ -87,6 +91,22 @@ class TestKLD7TrackerRingBuffer:
         # tdat/pdat are no longer collected and should not appear in snapshot
         assert "tdat" not in snap[0]
         assert "pdat" not in snap[0]
+
+    def test_snapshot_buffer_can_include_raw_radc_for_experiments(self):
+        tracker = self._make_tracker()
+        tracker._add_frame(KLD7Frame(timestamp=1000.0, radc=b"\x01\x02\x03"))
+
+        snap = tracker.snapshot_buffer(include_radc_payload=True)
+
+        assert snap == [
+            {
+                "timestamp": 1000.0,
+                "has_radc": True,
+                "radc_b64": "AQID",
+                "radc_payload_bytes": 3,
+                "radc_payload_valid": False,
+            }
+        ]
 
     def test_snapshot_buffer_omits_has_radc_when_no_radc(self):
         tracker = self._make_tracker()
@@ -150,8 +170,11 @@ class TestKLD7Integration:
 
     def test_angle_attaches_to_shot_vertical(self):
         shot = Shot(
-            ball_speed_mph=150.0, timestamp=datetime.now(),
-            launch_angle_vertical=12.5, launch_angle_confidence=0.8, angle_source="radar",
+            ball_speed_mph=150.0,
+            timestamp=datetime.now(),
+            launch_angle_vertical=12.5,
+            launch_angle_confidence=0.8,
+            angle_source="radar",
         )
         result = shot_to_dict(shot)
         assert result["launch_angle_vertical"] == 12.5
@@ -159,8 +182,11 @@ class TestKLD7Integration:
 
     def test_angle_attaches_to_shot_horizontal(self):
         shot = Shot(
-            ball_speed_mph=150.0, timestamp=datetime.now(),
-            launch_angle_horizontal=-3.5, launch_angle_confidence=0.7, angle_source="radar",
+            ball_speed_mph=150.0,
+            timestamp=datetime.now(),
+            launch_angle_horizontal=-3.5,
+            launch_angle_confidence=0.7,
+            angle_source="radar",
         )
         result = shot_to_dict(shot)
         assert result["launch_angle_horizontal"] == -3.5
@@ -168,14 +194,18 @@ class TestKLD7Integration:
     def test_carry_adjusts_for_vertical_angle(self):
         shot_no_angle = Shot(ball_speed_mph=150.0, timestamp=datetime.now())
         shot_with_angle = Shot(
-            ball_speed_mph=150.0, timestamp=datetime.now(),
-            launch_angle_vertical=15.0, launch_angle_confidence=0.8, angle_source="radar",
+            ball_speed_mph=150.0,
+            timestamp=datetime.now(),
+            launch_angle_vertical=15.0,
+            launch_angle_confidence=0.8,
+            angle_source="radar",
         )
         assert shot_no_angle.estimated_carry_yards != shot_with_angle.estimated_carry_yards
 
     def test_club_angle_in_shot_dict(self):
         shot = Shot(
-            ball_speed_mph=150.0, timestamp=datetime.now(),
+            ball_speed_mph=150.0,
+            timestamp=datetime.now(),
             club_angle_deg=-5.5,
         )
         result = shot_to_dict(shot)
@@ -184,8 +214,12 @@ class TestKLD7Integration:
     def test_full_tracker_to_shot_flow(self):
         """Full flow: KLD7Angle manually attached to Shot appears in shot_to_dict."""
         angle = KLD7Angle(
-            vertical_deg=18.0, horizontal_deg=None,
-            confidence=0.85, num_frames=3, magnitude=5.2, detection_class="ball",
+            vertical_deg=18.0,
+            horizontal_deg=None,
+            confidence=0.85,
+            num_frames=3,
+            magnitude=5.2,
+            detection_class="ball",
         )
 
         shot = Shot(ball_speed_mph=150.0, timestamp=datetime.now())
@@ -233,8 +267,12 @@ class TestRADCAngleExtraction:
         # F2A channel: same tone shifted by angle-dependent phase
         angle_rad = np.radians(angle_deg)
         steering_phase = 2 * np.pi * ANTENNA_SPACING_M * np.sin(angle_rad) / WAVELENGTH_M
-        f2a_i = (amplitude * np.cos(phase_per_sample * t + steering_phase) + 32768).astype(np.uint16)
-        f2a_q = (amplitude * np.sin(phase_per_sample * t + steering_phase) + 32768).astype(np.uint16)
+        f2a_i = (amplitude * np.cos(phase_per_sample * t + steering_phase) + 32768).astype(
+            np.uint16
+        )
+        f2a_q = (amplitude * np.sin(phase_per_sample * t + steering_phase) + 32768).astype(
+            np.uint16
+        )
 
         # F1B channel: zeros (not used for angle)
         zeros = np.full(n, 32768, dtype=np.uint16)
@@ -339,14 +377,16 @@ class TestRADCAngleExtraction:
 
         target_angle = 4.0
         clutter_angle = -14.0
-        radc = self._make_radc_payload_with_tones([
-            # See test_extracts_angle_from_radc_with_ball_speed for the
-            # synthetic sign flip. The lower-amplitude ball peak is near
-            # the OPS-expected bin; the stronger clutter peak is elsewhere
-            # inside the wider speed-tolerance band.
-            (aliased_kmh, -target_angle, 3000.0),
-            (-72.0, -clutter_angle, 8000.0),
-        ])
+        radc = self._make_radc_payload_with_tones(
+            [
+                # See test_extracts_angle_from_radc_with_ball_speed for the
+                # synthetic sign flip. The lower-amplitude ball peak is near
+                # the OPS-expected bin; the stronger clutter peak is elsewhere
+                # inside the wider speed-tolerance band.
+                (aliased_kmh, -target_angle, 3000.0),
+                (-72.0, -clutter_angle, 8000.0),
+            ]
+        )
         quiet = self._make_quiet_radc_payload()
 
         for i in range(10):
@@ -387,13 +427,15 @@ class TestRADCAngleExtraction:
 
         def fake_extract_launch_angle(frames, **kwargs):
             seen_timestamps.extend(frame["timestamp"] for frame in frames)
-            return [{
-                "launch_angle_deg": 7.5,
-                "ball_speed_mph": 80.0,
-                "avg_snr_db": 8.0,
-                "confidence": 0.8,
-                "frame_count": 2,
-            }]
+            return [
+                {
+                    "launch_angle_deg": 7.5,
+                    "ball_speed_mph": 80.0,
+                    "avg_snr_db": 8.0,
+                    "confidence": 0.8,
+                    "frame_count": 2,
+                }
+            ]
 
         monkeypatch.setattr(
             "openflight.kld7.radc.extract_launch_angle",
@@ -422,13 +464,15 @@ class TestRADCAngleExtraction:
 
         def fake_extract_launch_angle(frames, **kwargs):
             frame_counts.append(len(frames))
-            return [{
-                "launch_angle_deg": 7.5,
-                "ball_speed_mph": 80.0,
-                "avg_snr_db": 8.0,
-                "confidence": 0.8,
-                "frame_count": 2,
-            }]
+            return [
+                {
+                    "launch_angle_deg": 7.5,
+                    "ball_speed_mph": 80.0,
+                    "avg_snr_db": 8.0,
+                    "confidence": 0.8,
+                    "frame_count": 2,
+                }
+            ]
 
         monkeypatch.setattr(
             "openflight.kld7.radc.extract_launch_angle",
@@ -480,13 +524,15 @@ class TestRADCAngleExtraction:
         def fake_extract_launch_angle(frames, **kwargs):
             calls.append(kwargs["impact_energy_threshold"])
             if kwargs["impact_energy_threshold"] == 0.5:
-                return [{
-                    "launch_angle_deg": 2.4,
-                    "ball_speed_mph": 80.0,
-                    "avg_snr_db": 2.3,
-                    "confidence": 0.72,
-                    "frame_count": 12,
-                }]
+                return [
+                    {
+                        "launch_angle_deg": 2.4,
+                        "ball_speed_mph": 80.0,
+                        "avg_snr_db": 2.3,
+                        "confidence": 0.72,
+                        "frame_count": 12,
+                    }
+                ]
             return []
 
         monkeypatch.setattr(
@@ -510,20 +556,24 @@ class TestRADCAngleExtraction:
         def fake_extract_launch_angle(frames, **kwargs):
             calls.append(kwargs["impact_energy_threshold"])
             if kwargs["impact_energy_threshold"] == 1.85:
-                return [{
-                    "launch_angle_deg": 14.4,
+                return [
+                    {
+                        "launch_angle_deg": 14.4,
+                        "ball_speed_mph": 80.0,
+                        "avg_snr_db": 2.6,
+                        "confidence": 0.54,
+                        "frame_count": 2,
+                    }
+                ]
+            return [
+                {
+                    "launch_angle_deg": -3.1,
                     "ball_speed_mph": 80.0,
-                    "avg_snr_db": 2.6,
-                    "confidence": 0.54,
-                    "frame_count": 2,
-                }]
-            return [{
-                "launch_angle_deg": -3.1,
-                "ball_speed_mph": 80.0,
-                "avg_snr_db": 2.5,
-                "confidence": 0.63,
-                "frame_count": 18,
-            }]
+                    "avg_snr_db": 2.5,
+                    "confidence": 0.63,
+                    "frame_count": 18,
+                }
+            ]
 
         monkeypatch.setattr(
             "openflight.kld7.radc.extract_launch_angle",
@@ -545,13 +595,15 @@ class TestRADCAngleExtraction:
 
         def fake_extract_launch_angle(frames, **kwargs):
             calls.append(kwargs["impact_energy_threshold"])
-            return [{
-                "launch_angle_deg": 13.2,
-                "ball_speed_mph": 80.0,
-                "avg_snr_db": 6.0,
-                "confidence": 0.72,
-                "frame_count": 5,
-            }]
+            return [
+                {
+                    "launch_angle_deg": 13.2,
+                    "ball_speed_mph": 80.0,
+                    "avg_snr_db": 6.0,
+                    "confidence": 0.72,
+                    "frame_count": 5,
+                }
+            ]
 
         monkeypatch.setattr(
             "openflight.kld7.radc.extract_launch_angle",
@@ -584,3 +636,51 @@ class TestRADCAngleExtraction:
 
         assert calls == [3.0]
         assert result is None
+
+    def test_radc_extraction_passes_tunable_parameters(self, monkeypatch):
+        """Live extraction should use the same knobs as the replay tool."""
+        tracker = self._make_tracker(orientation="vertical")
+        tracker.radc_speed_tolerance_mph = 8.0
+        tracker.radc_centroid_floor_frac = 0.65
+        tracker.radc_ops_bin_outlier_tol = 12
+        tracker.radc_ops_bin_outlier_penalty = 4.0
+        tracker.radc_ops_anchored_peak_min_snr = 2.5
+        tracker.radc_vertical_impact_energy_threshold = 2.5
+        tracker.radc_horizontal_angle_limit_deg = 30.0
+        tracker._add_frame(KLD7Frame(timestamp=time.time(), radc=b"\x00" * 3072))
+        captured_kwargs = []
+
+        def fake_extract_launch_angle(frames, **kwargs):
+            captured_kwargs.append(kwargs)
+            return [
+                {
+                    "launch_angle_deg": 8.0,
+                    "ball_speed_mph": 80.0,
+                    "avg_snr_db": 5.0,
+                    "confidence": 0.8,
+                    "frame_count": 4,
+                }
+            ]
+
+        monkeypatch.setattr(
+            "openflight.kld7.radc.extract_launch_angle",
+            fake_extract_launch_angle,
+        )
+
+        result = tracker.get_angle_for_shot(ball_speed_mph=80.0)
+
+        assert result is not None
+        assert captured_kwargs == [
+            {
+                "ops243_ball_speed_mph": 80.0,
+                "angle_offset_deg": 0.0,
+                "speed_tolerance_mph": 8.0,
+                "impact_energy_threshold": 2.5,
+                "centroid_floor_frac": 0.65,
+                "ops_bin_outlier_tol": 12,
+                "ops_bin_outlier_penalty": 4.0,
+                "ops_anchored_peak_min_snr": 2.5,
+                "horizontal_angle_limit_deg": 30.0,
+                "orientation": "vertical",
+            }
+        ]

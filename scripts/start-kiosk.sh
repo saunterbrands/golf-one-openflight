@@ -14,6 +14,9 @@ MOCK_MODE=false
 RADAR_LOG=false
 DEBUG_MODE=false
 NO_CAMERA=true  # Camera disabled by default (K-LD7 radar handles angle)
+TRACKMAN_TEST=false
+SESSION_LOCATION=""
+DRY_RUN=false
 # Rolling buffer mode is the only mode (streaming mode removed)
 TRIGGER="sound"  # Default: hardware sound trigger (SEN-14262 → HOST_INT)
 SOUND_PRE_TRIGGER=""
@@ -24,6 +27,18 @@ KLD7_ANGLE_OFFSET=""
 KLD7_HORIZONTAL=false
 KLD7_HORIZONTAL_PORT=""
 KLD7_HORIZONTAL_OFFSET=""
+EXPERIMENTAL_KLD7_TRACKMAN_CALIBRATION=false
+EXPERIMENTAL_KLD7_RAW_RADC_LOGGING=false
+EXPERIMENTAL_KLD7_RADC_TUNING=false
+EXPERIMENTAL_KLD7_SPEED_TOLERANCE=""
+EXPERIMENTAL_KLD7_CENTROID_FLOOR=""
+EXPERIMENTAL_KLD7_OPS_BIN_TOL=""
+EXPERIMENTAL_KLD7_OPS_BIN_PENALTY=""
+EXPERIMENTAL_KLD7_OPS_ANCHORED_MIN_SNR=""
+EXPERIMENTAL_KLD7_VERTICAL_IMPACT_ENERGY=""
+EXPERIMENTAL_KLD7_HORIZONTAL_IMPACT_ENERGY=""
+EXPERIMENTAL_KLD7_HORIZONTAL_RETRY_IMPACT_ENERGY=""
+EXPERIMENTAL_KLD7_HORIZONTAL_ANGLE_LIMIT=""
 
 # Buffer split presets (pre/post trigger segments out of 32 total)
 # At 20ksps: each segment = 6.4ms, total buffer = 204.8ms
@@ -55,6 +70,18 @@ while [[ $# -gt 0 ]]; do
         --debug|-d)
             DEBUG_MODE=true
             shift
+            ;;
+        --trackman-test)
+            TRACKMAN_TEST=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --session-location|-l)
+            SESSION_LOCATION="$2"
+            shift 2
             ;;
         --no-camera)
             NO_CAMERA=true
@@ -104,6 +131,54 @@ while [[ $# -gt 0 ]]; do
             KLD7_HORIZONTAL_OFFSET="$2"
             shift 2
             ;;
+        --experimental-kld7-trackman-calibration)
+            EXPERIMENTAL_KLD7_TRACKMAN_CALIBRATION=true
+            shift
+            ;;
+        --experimental-kld7-raw-radc-logging)
+            EXPERIMENTAL_KLD7_RAW_RADC_LOGGING=true
+            shift
+            ;;
+        --experimental-kld7-radc-tuning)
+            EXPERIMENTAL_KLD7_RADC_TUNING=true
+            shift
+            ;;
+        --experimental-kld7-speed-tolerance)
+            EXPERIMENTAL_KLD7_SPEED_TOLERANCE="$2"
+            shift 2
+            ;;
+        --experimental-kld7-centroid-floor)
+            EXPERIMENTAL_KLD7_CENTROID_FLOOR="$2"
+            shift 2
+            ;;
+        --experimental-kld7-ops-bin-tol)
+            EXPERIMENTAL_KLD7_OPS_BIN_TOL="$2"
+            shift 2
+            ;;
+        --experimental-kld7-ops-bin-penalty)
+            EXPERIMENTAL_KLD7_OPS_BIN_PENALTY="$2"
+            shift 2
+            ;;
+        --experimental-kld7-ops-anchored-min-snr)
+            EXPERIMENTAL_KLD7_OPS_ANCHORED_MIN_SNR="$2"
+            shift 2
+            ;;
+        --experimental-kld7-vertical-impact-energy)
+            EXPERIMENTAL_KLD7_VERTICAL_IMPACT_ENERGY="$2"
+            shift 2
+            ;;
+        --experimental-kld7-horizontal-impact-energy)
+            EXPERIMENTAL_KLD7_HORIZONTAL_IMPACT_ENERGY="$2"
+            shift 2
+            ;;
+        --experimental-kld7-horizontal-retry-impact-energy)
+            EXPERIMENTAL_KLD7_HORIZONTAL_RETRY_IMPACT_ENERGY="$2"
+            shift 2
+            ;;
+        --experimental-kld7-horizontal-angle-limit)
+            EXPERIMENTAL_KLD7_HORIZONTAL_ANGLE_LIMIT="$2"
+            shift 2
+            ;;
         --port|-p)
             PORT="$2"
             shift 2
@@ -117,6 +192,13 @@ done
 # Resolve buffer split preset to a number (overrides --sound-pre-trigger)
 if [ -n "$BUFFER_SPLIT" ]; then
     SOUND_PRE_TRIGGER=$(resolve_buffer_split "$BUFFER_SPLIT")
+fi
+
+if [ "$TRACKMAN_TEST" = true ]; then
+    KLD7=true
+    KLD7_HORIZONTAL=true
+    EXPERIMENTAL_KLD7_RAW_RADC_LOGGING=true
+    SESSION_LOCATION="${SESSION_LOCATION:-trackman}"
 fi
 
 # Colors for output
@@ -155,24 +237,6 @@ trap cleanup SIGINT SIGTERM
 
 cd "$PROJECT_DIR"
 
-# Check if venv exists
-if [ ! -d ".venv" ]; then
-    error "Virtual environment not found. Run: uv venv && uv pip install -e '.[ui]'"
-    exit 1
-fi
-
-# Activate venv
-source .venv/bin/activate
-
-# Check if UI is built
-if [ ! -d "ui/dist" ]; then
-    warn "UI not built. Building now..."
-    cd ui
-    npm install
-    npm run build
-    cd ..
-fi
-
 # Build server command
 SERVER_CMD="openflight-server --web-port $PORT"
 
@@ -204,6 +268,60 @@ if [ -n "$SAMPLE_RATE" ]; then
     SERVER_CMD="$SERVER_CMD --sample-rate $SAMPLE_RATE"
 fi
 
+if [ -n "$SESSION_LOCATION" ]; then
+    SERVER_CMD="$SERVER_CMD --session-location $SESSION_LOCATION"
+fi
+
+if [ "$EXPERIMENTAL_KLD7_TRACKMAN_CALIBRATION" = true ]; then
+    SERVER_CMD="$SERVER_CMD --experimental-kld7-trackman-calibration"
+fi
+
+if [ "$EXPERIMENTAL_KLD7_RAW_RADC_LOGGING" = true ]; then
+    SERVER_CMD="$SERVER_CMD --experimental-kld7-raw-radc-logging"
+fi
+
+if [ "$EXPERIMENTAL_KLD7_RADC_TUNING" = true ]; then
+    SERVER_CMD="$SERVER_CMD --experimental-kld7-radc-tuning"
+
+    if [ -n "$EXPERIMENTAL_KLD7_SPEED_TOLERANCE" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-speed-tolerance $EXPERIMENTAL_KLD7_SPEED_TOLERANCE"
+    fi
+
+    if [ -n "$EXPERIMENTAL_KLD7_CENTROID_FLOOR" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-centroid-floor $EXPERIMENTAL_KLD7_CENTROID_FLOOR"
+    fi
+
+    if [ -n "$EXPERIMENTAL_KLD7_OPS_BIN_TOL" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-ops-bin-tol $EXPERIMENTAL_KLD7_OPS_BIN_TOL"
+    fi
+
+    if [ -n "$EXPERIMENTAL_KLD7_OPS_BIN_PENALTY" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-ops-bin-penalty $EXPERIMENTAL_KLD7_OPS_BIN_PENALTY"
+    fi
+
+    if [ -n "$EXPERIMENTAL_KLD7_OPS_ANCHORED_MIN_SNR" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-ops-anchored-min-snr $EXPERIMENTAL_KLD7_OPS_ANCHORED_MIN_SNR"
+    fi
+
+    if [ -n "$EXPERIMENTAL_KLD7_VERTICAL_IMPACT_ENERGY" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-vertical-impact-energy $EXPERIMENTAL_KLD7_VERTICAL_IMPACT_ENERGY"
+    fi
+
+    if [ -n "$EXPERIMENTAL_KLD7_HORIZONTAL_IMPACT_ENERGY" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-horizontal-impact-energy $EXPERIMENTAL_KLD7_HORIZONTAL_IMPACT_ENERGY"
+    fi
+
+    if [ -n "$EXPERIMENTAL_KLD7_HORIZONTAL_RETRY_IMPACT_ENERGY" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-horizontal-retry-impact-energy $EXPERIMENTAL_KLD7_HORIZONTAL_RETRY_IMPACT_ENERGY"
+    fi
+
+    if [ -n "$EXPERIMENTAL_KLD7_HORIZONTAL_ANGLE_LIMIT" ]; then
+        SERVER_CMD="$SERVER_CMD --experimental-kld7-horizontal-angle-limit $EXPERIMENTAL_KLD7_HORIZONTAL_ANGLE_LIMIT"
+    fi
+elif [ -n "$EXPERIMENTAL_KLD7_SPEED_TOLERANCE$EXPERIMENTAL_KLD7_CENTROID_FLOOR$EXPERIMENTAL_KLD7_OPS_BIN_TOL$EXPERIMENTAL_KLD7_OPS_BIN_PENALTY$EXPERIMENTAL_KLD7_OPS_ANCHORED_MIN_SNR$EXPERIMENTAL_KLD7_VERTICAL_IMPACT_ENERGY$EXPERIMENTAL_KLD7_HORIZONTAL_IMPACT_ENERGY$EXPERIMENTAL_KLD7_HORIZONTAL_RETRY_IMPACT_ENERGY$EXPERIMENTAL_KLD7_HORIZONTAL_ANGLE_LIMIT" ]; then
+    warn "Ignoring experimental K-LD7 RADC tuning values without --experimental-kld7-radc-tuning"
+fi
+
 # K-LD7 radar defaults when --kld7 is enabled
 if [ "$KLD7" = true ]; then
     SERVER_CMD="$SERVER_CMD --kld7"
@@ -218,6 +336,29 @@ if [ "$KLD7" = true ]; then
         SERVER_CMD="$SERVER_CMD --kld7-horizontal-port ${KLD7_HORIZONTAL_PORT:-/dev/kld7_horizontal}"
         SERVER_CMD="$SERVER_CMD --kld7-horizontal-offset ${KLD7_HORIZONTAL_OFFSET:-0}"
     fi
+fi
+
+if [ "$DRY_RUN" = true ]; then
+    echo "$SERVER_CMD"
+    exit 0
+fi
+
+# Check if venv exists
+if [ ! -d ".venv" ]; then
+    error "Virtual environment not found. Run: uv venv && uv pip install -e '.[ui]'"
+    exit 1
+fi
+
+# Activate venv
+source .venv/bin/activate
+
+# Check if UI is built
+if [ ! -d "ui/dist" ]; then
+    warn "UI not built. Building now..."
+    cd ui
+    npm install
+    npm run build
+    cd ..
 fi
 
 # Start Grafana Alloy for log shipping (if installed and credentials configured)
@@ -257,6 +398,10 @@ fi
 
 if [ "$DEBUG_MODE" = true ]; then
     log "Debug mode enabled (verbose output)"
+fi
+
+if [ "$TRACKMAN_TEST" = true ]; then
+    log "TrackMan test mode enabled (dual K-LD7, raw RADC logging, location: $SESSION_LOCATION)"
 fi
 
 if [ "$NO_CAMERA" = true ]; then

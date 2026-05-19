@@ -15,7 +15,24 @@ For every test pass, preserve enough raw data and diagnostics to answer:
 
 ## Before A Session
 
-1. Pull latest `main` on the Pi and restart OpenFlight.
+1. Pull latest `main` on the Pi and restart OpenFlight with the Trackman test
+   preset:
+
+   ```bash
+   scripts/start-kiosk.sh --trackman-test
+   ```
+
+   This enables both K-LD7 radars, raw RADC payload logging, and
+   `--session-location trackman`. It intentionally does not enable saved-angle
+   Trackman calibration or experimental RADC tuning, so the field session keeps
+   production angle extraction behavior while preserving raw payloads for
+   replay.
+   To verify the exact server command without starting hardware or the kiosk,
+   run:
+
+   ```bash
+   scripts/start-kiosk.sh --trackman-test --dry-run
+   ```
 2. Confirm the selected club in the UI matches the club being hit.
    - This matters for launch-angle fallbacks, spin expectations, and club-aware
      spin rail filtering.
@@ -24,7 +41,10 @@ For every test pass, preserve enough raw data and diagnostics to answer:
 4. Confirm K-LD7 orientation and udev symlinks:
    - horizontal: `/dev/kld7_horizontal`
    - vertical: `/dev/kld7_vertical`
-5. If testing raw K-LD7 ADC, run the RADC capture script and save a `.pkl`.
+5. For the primary K-LD7 replay path, rely on the `--trackman-test` JSONL raw
+   RADC logging. Run the standalone RADC capture script only for extra
+   short-window diagnostics, and make sure its capture window overlaps the
+   Trackman comparison rows.
 6. Make sure Trackman export includes shot number/order, club, ball speed, club
    speed, launch angle, launch direction, spin rate, and carry.
 
@@ -36,7 +56,7 @@ Always collect:
 - Trackman normalized CSV export
 - Any generated comparison CSV/plots
 
-Collect when debugging K-LD7 angles:
+Optional when debugging K-LD7 angles:
 
 - K-LD7 raw ADC `.pkl` from `scripts/analysis/capture_kld7_radc.py`
 - Any `diagnose_kld7_raw_adc.py` output directories
@@ -51,7 +71,8 @@ Conductor workspace. Check both before assuming a file is missing.
 
 ## Raw K-LD7 ADC Capture
 
-Use this when investigating horizontal or vertical launch-angle misses:
+Use this when investigating horizontal or vertical launch-angle misses outside
+the normal `--trackman-test` JSONL path:
 
 ```bash
 uv run --no-project \
@@ -68,6 +89,9 @@ Notes:
 - The script should leave OPS243 rolling buffer armed after each trigger and on
   shutdown.
 - Store the `.pkl` next to session logs or copy it into a shared location.
+- Standalone `.pkl` captures are useful only if their `capture_start` and
+  `capture_end` overlap the Trackman comparison CSV timestamps. If they do not,
+  replay cannot treat Trackman as source truth for those raw frames.
 - If a capture has many short/invalid RADC payloads, note the K-LD7 frame rate
   and USB/serial contention before tuning angle logic.
 
@@ -111,6 +135,31 @@ The comparison script reports per-club bias and writes row-level deltas for:
 - spin
 - carry
 
+For saved-angle calibration checks, use the evaluator but treat the exact
+historical pass as an acceptance fixture, not proof of future-shot accuracy:
+
+```bash
+uv run --no-sync python scripts/analysis/evaluate_kld7_trackman_calibration.py \
+  --comparison session_logs/comparison_20260506.csv \
+  --comparison session_logs/comparison_test2.csv \
+  --summary-output session_logs/kld7_calibration_summary.json \
+  --require-within-limit
+```
+
+The output includes exact replay, leave-one-out, per-axis leave-one-out,
+source-holdout metrics, and source-holdout baselines. Source-holdout trains on
+one comparison CSV and tests on the other, so it is the better warning signal
+for whether the empirical calibration will transfer to the next TrackMan
+session. The baselines compare the empirical correction with raw saved K-LD7
+angles and a simple axis/club TrackMan mean; if the correction cannot beat those
+baselines, the saved-angle data is not strong enough to justify changing the
+live signal path without raw RADC replay.
+
+To make that transfer check a hard gate, add `--require-source-holdout`. The
+current two saved-angle sessions are expected to fail this stricter gate; that is
+why raw RADC replay from a new `--trackman-test` session is still required before
+calling the K-LD7 signal-processing path ready.
+
 It also includes OpenFlight spin diagnostics when present:
 
 - `spin_candidate_of`
@@ -121,6 +170,58 @@ It also includes OpenFlight spin diagnostics when present:
 
 Use these columns to determine whether OpenFlight had no spin signal, rejected a
 candidate, or accepted a low-confidence value.
+
+Before tuning K-LD7 signal-processing parameters, require raw RADC replayability:
+
+```bash
+uv run --no-sync python scripts/analysis/replay_kld7_trackman.py \
+  --comparison session_logs/comparison_<timestamp>.csv \
+  --openflight session_logs/session_<timestamp>_range.jsonl \
+  --summary-output session_logs/kld7_replay_preflight_<timestamp>.json \
+  --require-trackman-test-provenance \
+  --check-raw-radc-only
+```
+
+The preflight prints `capture_raw_payloads` from top-level `kld7_buffer`
+metadata and `raw_radc_readiness` from the comparison-to-buffer mapping. For a
+usable Trackman replay, both should show raw payload coverage rather than zero
+payloads, incomplete expected payloads, or invalid payload sizes. New
+`--trackman-test` logs include per-frame `radc_payload_bytes`; `payload_invalid`
+must stay at `0` because replay requires each decoded RADC payload to be exactly
+3072 bytes. Replay summary JSON also preserves the session
+`config.kld7_experiments` block, so the artifact should show
+`raw_radc_payload_logging_requested: true`, `raw_radc_payload_logging_enabled:
+true`, `trackman_calibration_enabled: false`, and `radc_tuning_enabled: false`
+for the default `--trackman-test` collection run.
+With `--check-raw-radc-only`, `--summary-output` writes a preflight JSON
+artifact with `raw_radc_readiness_passes`,
+`raw_radc_readiness_by_first_shot`, `trackman_test_provenance_passes`, and
+`trackman_test_provenance_issues`.
+
+Then run the full TrackMan gate:
+
+```bash
+uv run --no-sync python scripts/analysis/replay_kld7_trackman.py \
+  --comparison session_logs/comparison_<timestamp>.csv \
+  --openflight session_logs/session_<timestamp>_range.jsonl \
+  --summary-output session_logs/kld7_replay_summary_<timestamp>.json \
+  --diagnostics-output session_logs/kld7_replay_diagnostics_<timestamp>.jsonl \
+  --require-trackman-test-provenance \
+  --require-raw-radc \
+  --require-within-half-degree
+```
+
+The full replay summary JSON includes `trackman_replay_gate_passes` and
+`trackman_replay_gate_issues`, which combine raw-RADC readiness, clean
+Trackman-test provenance, and the within-0.5° accuracy gate into one verdict.
+
+If this fails with `buffers missing radc_b64` or `invalid RADC payload size`,
+the session can still evaluate saved OpenFlight angles, but it cannot prove a
+new RADC extraction algorithm. When raw RADC is present but the within-0.5° gate
+fails, inspect the diagnostics
+JSONL first. Each row includes the TrackMan target, replay result, target bands,
+expected OPS bin, SNR, peak-bin error, phase coherence, ADC health warnings, and
+the parameter set that produced the replay.
 
 ## Reading Session Logs
 

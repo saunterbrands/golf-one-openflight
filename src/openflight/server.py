@@ -65,6 +65,22 @@ debug_log_path: Optional[Path] = None
 # K-LD7 angle radars (vertical = launch angle, horizontal = club path)
 kld7_vertical = None
 kld7_horizontal = None
+experimental_kld7_trackman_calibration: bool = False
+experimental_kld7_radc_tuning: bool = False
+experimental_kld7_raw_radc_logging: bool = False
+
+_DEFAULT_KLD7_RADC_TUNING = {
+    "radc_speed_tolerance_mph": 10.0,
+    "radc_centroid_floor_frac": 0.5,
+    "radc_ops_bin_outlier_tol": 25,
+    "radc_ops_bin_outlier_penalty": 10.0,
+    "radc_ops_anchored_peak_min_snr": 5.0,
+    "radc_vertical_impact_energy_threshold": 3.0,
+    "radc_horizontal_impact_energy_threshold": 1.85,
+    "radc_horizontal_retry_impact_energy_threshold": 0.5,
+    "radc_horizontal_angle_limit_deg": 15.0,
+}
+active_kld7_radc_tuning: dict = dict(_DEFAULT_KLD7_RADC_TUNING)
 
 # Camera state
 camera: Optional["Picamera2"] = None
@@ -253,9 +269,10 @@ def radar_launch_is_plausible(
         club_speed_mph=club_speed_mph,
         spin_rpm=spin_rpm,
     )
-    allowed_delta_deg = _radar_launch_base_delta_deg(club) + (
-        1.0 - estimate_conf
-    ) * _RADAR_SANITY_LOW_CONF_BONUS_DEG
+    allowed_delta_deg = (
+        _radar_launch_base_delta_deg(club)
+        + (1.0 - estimate_conf) * _RADAR_SANITY_LOW_CONF_BONUS_DEG
+    )
     delta_deg = abs(radar_angle_deg - expected_launch_deg)
     if radar_angle_deg <= expected_launch_deg:
         plausible = 0.0 <= radar_angle_deg <= 45.0
@@ -301,7 +318,7 @@ def _ensure_user_facing_launch_angles(shot: Shot) -> None:
                     shot.ball_speed_mph,
                     club_speed_mph=shot.club_speed_mph,
                     spin_rpm=shot.spin_rpm,
-            )
+                )
             shot.launch_angle_confidence = estimated[1]
         if shot.launch_angle_horizontal_confidence is None:
             if estimated is None:
@@ -339,17 +356,80 @@ def _warn_if_kld7_buffer_underfilled(orientation: str, frame_count: int) -> None
         logger.warning(
             "[SERVER] K-LD7 %s buffer underfilled: %d/%d frames (%.0f%%) — "
             "stream rate dropped, check USB cabling and contention.",
-            orientation, frame_count, expected,
+            orientation,
+            frame_count,
+            expected,
             100.0 * frame_count / expected,
         )
 
 
-def _kld7_angle_log_payload(angle, axis_field: str) -> Optional[dict]:
+def _warn_if_kld7_raw_payload_missing(
+    orientation: str,
+    buffer_frames: list,
+    *,
+    raw_payload_expected: bool,
+) -> None:
+    """Log a WARNING when experimental replay logging lacks raw RADC bytes."""
+    if not raw_payload_expected or not buffer_frames:
+        return
+
+    radc_frames = sum(
+        1 for frame in buffer_frames if frame.get("has_radc") or frame.get("radc_b64")
+    )
+    if radc_frames == 0:
+        logger.warning(
+            "[SERVER] K-LD7 %s raw RADC replay payload missing: buffer has no RADC frames. "
+            "TrackMan replay will fail; verify RADC streaming.",
+            orientation,
+        )
+        return
+
+    payload_frames = sum(1 for frame in buffer_frames if frame.get("radc_b64"))
+    if payload_frames == radc_frames:
+        invalid_payload_frames = sum(
+            1
+            for frame in buffer_frames
+            if frame.get("radc_b64") and frame.get("radc_payload_valid") is False
+        )
+        if invalid_payload_frames:
+            logger.warning(
+                "[SERVER] K-LD7 %s raw RADC replay payload invalid: %d/%d payloads "
+                "have the wrong byte length. TrackMan replay will fail for those frames.",
+                orientation,
+                invalid_payload_frames,
+                payload_frames,
+            )
+        return
+
+    if payload_frames == 0:
+        logger.warning(
+            "[SERVER] K-LD7 %s raw RADC replay payload missing: 0/%d RADC frames have radc_b64. "
+            "TrackMan replay will fail; verify RADC streaming and raw payload logging.",
+            orientation,
+            radc_frames,
+        )
+        return
+
+    logger.warning(
+        "[SERVER] K-LD7 %s raw RADC replay payload incomplete: %d/%d RADC frames have radc_b64. "
+        "TrackMan replay may fail for some shots.",
+        orientation,
+        payload_frames,
+        radc_frames,
+    )
+
+
+def _kld7_angle_log_payload(
+    angle,
+    axis_field: str,
+    raw_angle_deg: Optional[float] = None,
+    calibration_details: Optional[dict] = None,
+) -> Optional[dict]:
     """Build the compact K-LD7 angle payload used in session logs."""
     if angle is None:
         return None
 
-    return {
+    payload = {
         axis_field: getattr(angle, axis_field),
         "confidence": angle.confidence,
         "detection_class": angle.detection_class,
@@ -359,6 +439,140 @@ def _kld7_angle_log_payload(angle, axis_field: str) -> Optional[dict]:
         "frames_available": angle.frames_available,
         "frames_ignored_stale": angle.frames_ignored_stale,
     }
+    if experimental_kld7_trackman_calibration and raw_angle_deg is not None:
+        from openflight.kld7.trackman_calibration import CALIBRATION_MODEL_NAME
+
+        raw_key = f"raw_{axis_field}"
+        calibrated_key = f"calibrated_{axis_field}"
+        payload[raw_key] = raw_angle_deg
+        payload[calibrated_key] = getattr(angle, axis_field)
+        payload["calibration_model"] = CALIBRATION_MODEL_NAME
+        if calibration_details:
+            payload["calibration_details"] = calibration_details
+    return payload
+
+
+def _calibrate_experimental_kld7_trackman_angle(
+    *,
+    axis: str,
+    angle_deg: float,
+    club: ClubType,
+    ball_speed_mph: float,
+    club_speed_mph: Optional[float],
+) -> tuple[float, Optional[dict]]:
+    """Apply the disabled-by-default TrackMan K-LD7 correction with metadata."""
+    if not experimental_kld7_trackman_calibration:
+        return angle_deg, None
+
+    from openflight.kld7.trackman_calibration import (
+        CALIBRATION_MODEL_NAME,
+        calibrate_angle_with_metadata,
+    )
+
+    result = calibrate_angle_with_metadata(
+        axis=axis,
+        raw_angle_deg=angle_deg,
+        club=club,
+        ball_speed_mph=ball_speed_mph,
+        club_speed_mph=club_speed_mph,
+    )
+    corrected = result.angle_deg
+    logger.info(
+        "[SERVER] Experimental K-LD7 TrackMan calibration (%s, %s): %.1f° -> %.1f° "
+        "(nearest=%s/%s, distance=%s)",
+        axis,
+        result.decision,
+        angle_deg,
+        corrected,
+        result.nearest_session,
+        result.nearest_shot_number,
+        None if result.nearest_distance is None else round(result.nearest_distance, 3),
+    )
+    details = {
+        "decision": result.decision,
+        "nearest_distance": result.nearest_distance,
+        "nearest_session": result.nearest_session,
+        "nearest_shot_number": result.nearest_shot_number,
+        "nearest_axis": result.nearest_axis,
+        "nearest_club": result.nearest_club,
+        "model": CALIBRATION_MODEL_NAME,
+    }
+    return corrected, details
+
+
+def _apply_experimental_kld7_trackman_calibration(
+    *,
+    axis: str,
+    angle_deg: float,
+    club: ClubType,
+    ball_speed_mph: float,
+    club_speed_mph: Optional[float],
+) -> float:
+    """Apply the disabled-by-default TrackMan K-LD7 correction."""
+    corrected, _ = _calibrate_experimental_kld7_trackman_angle(
+        axis=axis,
+        angle_deg=angle_deg,
+        club=club,
+        ball_speed_mph=ball_speed_mph,
+        club_speed_mph=club_speed_mph,
+    )
+    return corrected
+
+
+def _experimental_kld7_raw_radc_logging_enabled() -> bool:
+    """Return whether K-LD7 buffers should include raw RADC payloads."""
+    return (
+        experimental_kld7_raw_radc_logging
+        or experimental_kld7_trackman_calibration
+        or experimental_kld7_radc_tuning
+    )
+
+
+def _kld7_radc_tuning_kwargs(args) -> dict:
+    """Return K-LD7 RADC extraction parameters for startup.
+
+    The experimental CLI knobs are intentionally ignored unless the
+    dedicated experiment gate is enabled. This keeps default/prod startup
+    behavior stable even if stale args are passed through a shell wrapper.
+    """
+    if not getattr(args, "experimental_kld7_radc_tuning", False):
+        return dict(_DEFAULT_KLD7_RADC_TUNING)
+
+    return {
+        "radc_speed_tolerance_mph": args.experimental_kld7_speed_tolerance,
+        "radc_centroid_floor_frac": args.experimental_kld7_centroid_floor,
+        "radc_ops_bin_outlier_tol": args.experimental_kld7_ops_bin_tol,
+        "radc_ops_bin_outlier_penalty": args.experimental_kld7_ops_bin_penalty,
+        "radc_ops_anchored_peak_min_snr": args.experimental_kld7_ops_anchored_min_snr,
+        "radc_vertical_impact_energy_threshold": (args.experimental_kld7_vertical_impact_energy),
+        "radc_horizontal_impact_energy_threshold": (
+            args.experimental_kld7_horizontal_impact_energy
+        ),
+        "radc_horizontal_retry_impact_energy_threshold": (
+            args.experimental_kld7_horizontal_retry_impact_energy
+        ),
+        "radc_horizontal_angle_limit_deg": args.experimental_kld7_horizontal_angle_limit,
+    }
+
+
+def _session_start_config() -> dict:
+    """Return session-start config including experimental K-LD7 provenance."""
+    config = radar_config.copy()
+    if experimental_kld7_trackman_calibration:
+        from openflight.kld7.trackman_calibration import CALIBRATION_MODEL_NAME
+
+        calibration_model = CALIBRATION_MODEL_NAME
+    else:
+        calibration_model = None
+    config["kld7_experiments"] = {
+        "trackman_calibration_enabled": experimental_kld7_trackman_calibration,
+        "trackman_calibration_model": calibration_model,
+        "raw_radc_payload_logging_enabled": _experimental_kld7_raw_radc_logging_enabled(),
+        "raw_radc_payload_logging_requested": experimental_kld7_raw_radc_logging,
+        "radc_tuning_enabled": experimental_kld7_radc_tuning,
+        "radc_tuning_params": dict(active_kld7_radc_tuning),
+    }
+    return config
 
 
 def shot_to_dict(shot: Shot) -> dict:
@@ -393,20 +607,16 @@ def shot_to_dict(shot: Shot) -> dict:
         "spin_quality": shot.spin_quality,
         "spin_snr": round(shot.spin_snr, 2) if shot.spin_snr is not None else None,
         "spin_modulation_depth": (
-            round(shot.spin_modulation_depth, 4)
-            if shot.spin_modulation_depth is not None else None
+            round(shot.spin_modulation_depth, 4) if shot.spin_modulation_depth is not None else None
         ),
         "spin_peak_freq_hz": (
-            round(shot.spin_peak_freq_hz, 2)
-            if shot.spin_peak_freq_hz is not None else None
+            round(shot.spin_peak_freq_hz, 2) if shot.spin_peak_freq_hz is not None else None
         ),
         "spin_candidate_rpm": (
-            round(shot.spin_peak_freq_hz * 60)
-            if shot.spin_peak_freq_hz is not None else None
+            round(shot.spin_peak_freq_hz * 60) if shot.spin_peak_freq_hz is not None else None
         ),
         "spin_seam_cycles": (
-            round(shot.spin_seam_cycles, 2)
-            if shot.spin_seam_cycles is not None else None
+            round(shot.spin_seam_cycles, 2) if shot.spin_seam_cycles is not None else None
         ),
         "spin_at_lower_rail": shot.spin_at_lower_rail,
         "spin_at_upper_rail": shot.spin_at_upper_rail,
@@ -414,12 +624,12 @@ def shot_to_dict(shot: Shot) -> dict:
         "spin_phase_method": shot.spin_phase_method,
         "spin_phase_rpm": round(shot.spin_phase_rpm) if shot.spin_phase_rpm else None,
         "spin_phase_snr": (
-            round(shot.spin_phase_snr, 2)
-            if shot.spin_phase_snr is not None else None
+            round(shot.spin_phase_snr, 2) if shot.spin_phase_snr is not None else None
         ),
         "spin_phase_agreement_pct": (
             round(shot.spin_phase_agreement_pct, 1)
-            if shot.spin_phase_agreement_pct is not None else None
+            if shot.spin_phase_agreement_pct is not None
+            else None
         ),
         "spin_phase_confirmed": shot.spin_phase_confirmed,
         "spin_rejection_reason": shot.spin_rejection_reason,
@@ -453,9 +663,11 @@ def api_shutdown():
     logger.info("[SERVER] Shutdown requested via REST API")
 
     import threading
+
     def _shutdown():
         import os
         import time as _time
+
         _time.sleep(0.5)
         # Clean up before exit
         try:
@@ -544,7 +756,21 @@ def init_camera(
         return False
 
 
-def init_kld7(port=None, orientation="vertical", angle_offset_deg=0.0, base_freq=0) -> bool:
+def init_kld7(
+    port=None,
+    orientation="vertical",
+    angle_offset_deg=0.0,
+    base_freq=0,
+    radc_speed_tolerance_mph=10.0,
+    radc_centroid_floor_frac=0.5,
+    radc_ops_bin_outlier_tol=25,
+    radc_ops_bin_outlier_penalty=10.0,
+    radc_ops_anchored_peak_min_snr=5.0,
+    radc_vertical_impact_energy_threshold=3.0,
+    radc_horizontal_impact_energy_threshold=1.85,
+    radc_horizontal_retry_impact_energy_threshold=0.5,
+    radc_horizontal_angle_limit_deg=15.0,
+) -> bool:
     """Initialize a single K-LD7 angle radar tracker.
 
     Returns True if the tracker connected and started successfully.
@@ -555,14 +781,32 @@ def init_kld7(port=None, orientation="vertical", angle_offset_deg=0.0, base_freq
         from openflight.kld7 import KLD7Tracker
 
         tracker = KLD7Tracker(
-            port=port, orientation=orientation,
-            angle_offset_deg=angle_offset_deg, base_freq=base_freq,
+            port=port,
+            orientation=orientation,
+            angle_offset_deg=angle_offset_deg,
+            base_freq=base_freq,
             buffer_seconds=6.0,
+            radc_speed_tolerance_mph=radc_speed_tolerance_mph,
+            radc_centroid_floor_frac=radc_centroid_floor_frac,
+            radc_ops_bin_outlier_tol=radc_ops_bin_outlier_tol,
+            radc_ops_bin_outlier_penalty=radc_ops_bin_outlier_penalty,
+            radc_ops_anchored_peak_min_snr=radc_ops_anchored_peak_min_snr,
+            radc_vertical_impact_energy_threshold=radc_vertical_impact_energy_threshold,
+            radc_horizontal_impact_energy_threshold=(radc_horizontal_impact_energy_threshold),
+            radc_horizontal_retry_impact_energy_threshold=(
+                radc_horizontal_retry_impact_energy_threshold
+            ),
+            radc_horizontal_angle_limit_deg=radc_horizontal_angle_limit_deg,
         )
         if tracker.connect():
             tracker.start()
-            logger.info("[SERVER] K-LD7 %s initialized (port=%s, offset=%.1f°, RBFR=%d)",
-                         orientation, port or "auto", angle_offset_deg, base_freq)
+            logger.info(
+                "[SERVER] K-LD7 %s initialized (port=%s, offset=%.1f°, RBFR=%d)",
+                orientation,
+                port or "auto",
+                angle_offset_deg,
+                base_freq,
+            )
             session_log = get_session_logger()
             if session_log:
                 session_log.log_connection(
@@ -1049,9 +1293,11 @@ def handle_shutdown():
     socketio.emit("shutdown_ack", {"message": "Shutting down..."})
 
     import threading
+
     def _shutdown():
         import os
         import time as _time
+
         _time.sleep(0.5)
         try:
             if kld7_vertical:
@@ -1083,13 +1329,38 @@ def on_shot_detected(shot: Shot):
 
             # --- Vertical K-LD7 (launch angle) ---
             if kld7_vertical:
-                raw_buffer = kld7_vertical.snapshot_buffer()
+                raw_payload_expected = _experimental_kld7_raw_radc_logging_enabled()
+                if raw_payload_expected:
+                    raw_buffer = kld7_vertical.snapshot_buffer(include_radc_payload=True)
+                else:
+                    raw_buffer = kld7_vertical.snapshot_buffer()
                 _warn_if_kld7_buffer_underfilled("vertical", len(raw_buffer))
+                _warn_if_kld7_raw_payload_missing(
+                    "vertical",
+                    raw_buffer,
+                    raw_payload_expected=raw_payload_expected,
+                )
                 kld7_angle = kld7_vertical.get_angle_for_shot(
                     shot_timestamp=shot_ts,
                     ball_speed_mph=shot.ball_speed_mph,
                 )
+                raw_vertical_angle_deg = (
+                    kld7_angle.vertical_deg
+                    if kld7_angle and kld7_angle.vertical_deg is not None
+                    else None
+                )
+                vertical_calibration_details = None
                 if kld7_angle and kld7_angle.vertical_deg is not None:
+                    (
+                        kld7_angle.vertical_deg,
+                        vertical_calibration_details,
+                    ) = _calibrate_experimental_kld7_trackman_angle(
+                        axis="v",
+                        angle_deg=kld7_angle.vertical_deg,
+                        club=shot.club,
+                        ball_speed_mph=shot.ball_speed_mph,
+                        club_speed_mph=shot.club_speed_mph,
+                    )
                     accepted, guard_details = radar_launch_is_plausible(
                         radar_angle_deg=kld7_angle.vertical_deg,
                         club=shot.club,
@@ -1105,7 +1376,8 @@ def on_shot_detected(shot: Shot):
                         shot.angle_source = "radar"
                         logger.info(
                             "[SERVER] Vertical angle: %.1f° (conf=%.0f%%, %d frames)",
-                            kld7_angle.vertical_deg, kld7_angle.confidence * 100,
+                            kld7_angle.vertical_deg,
+                            kld7_angle.confidence * 100,
                             kld7_angle.num_frames,
                         )
                     else:
@@ -1132,11 +1404,16 @@ def on_shot_detected(shot: Shot):
                         # Real AoA ranges from ~-15° (steep iron) to ~+8° (ascending driver).
                         if -15.0 <= candidate_aoa <= 8.0:
                             shot.club_angle_deg = candidate_aoa
-                            logger.info("[SERVER] Club AoA: %.1f° (conf=%.0f%%)",
-                                         shot.club_angle_deg, club_angle_v.confidence * 100)
+                            logger.info(
+                                "[SERVER] Club AoA: %.1f° (conf=%.0f%%)",
+                                shot.club_angle_deg,
+                                club_angle_v.confidence * 100,
+                            )
                         else:
-                            logger.warning("[SERVER] Club AoA rejected: %.1f° outside plausible range",
-                                           candidate_aoa)
+                            logger.warning(
+                                "[SERVER] Club AoA rejected: %.1f° outside plausible range",
+                                candidate_aoa,
+                            )
 
                 if session_log and raw_buffer:
                     session_log.log_kld7_buffer(
@@ -1144,23 +1421,64 @@ def on_shot_detected(shot: Shot):
                         shot_timestamp=shot_ts,
                         orientation="vertical",
                         buffer_frames=raw_buffer,
-                        ball_angle=_kld7_angle_log_payload(kld7_angle, "vertical_deg"),
+                        ball_angle=_kld7_angle_log_payload(
+                            kld7_angle,
+                            "vertical_deg",
+                            raw_angle_deg=raw_vertical_angle_deg,
+                            calibration_details=vertical_calibration_details,
+                        ),
                         club_angle=_kld7_angle_log_payload(club_angle_v, "vertical_deg"),
+                        raw_payload_expected=raw_payload_expected,
                     )
 
                 kld7_vertical.reset()
 
             # --- Horizontal K-LD7 (club path / aim direction) ---
             if kld7_horizontal:
-                raw_buffer_h = kld7_horizontal.snapshot_buffer()
+                raw_payload_expected_h = _experimental_kld7_raw_radc_logging_enabled()
+                if raw_payload_expected_h:
+                    raw_buffer_h = kld7_horizontal.snapshot_buffer(include_radc_payload=True)
+                else:
+                    raw_buffer_h = kld7_horizontal.snapshot_buffer()
                 _warn_if_kld7_buffer_underfilled("horizontal", len(raw_buffer_h))
+                _warn_if_kld7_raw_payload_missing(
+                    "horizontal",
+                    raw_buffer_h,
+                    raw_payload_expected=raw_payload_expected_h,
+                )
                 kld7_angle_h = kld7_horizontal.get_angle_for_shot(
                     shot_timestamp=shot_ts,
                     ball_speed_mph=shot.ball_speed_mph,
                 )
+                raw_horizontal_angle_deg = (
+                    kld7_angle_h.horizontal_deg
+                    if kld7_angle_h and kld7_angle_h.horizontal_deg is not None
+                    else None
+                )
+                horizontal_calibration_details = None
                 if kld7_angle_h and kld7_angle_h.horizontal_deg is not None:
+                    (
+                        kld7_angle_h.horizontal_deg,
+                        horizontal_calibration_details,
+                    ) = _calibrate_experimental_kld7_trackman_angle(
+                        axis="h",
+                        angle_deg=kld7_angle_h.horizontal_deg,
+                        club=shot.club,
+                        ball_speed_mph=shot.ball_speed_mph,
+                        club_speed_mph=shot.club_speed_mph,
+                    )
+                    horizontal_limit = (
+                        float(
+                            active_kld7_radc_tuning.get(
+                                "radc_horizontal_angle_limit_deg",
+                                15.0,
+                            )
+                        )
+                        if experimental_kld7_radc_tuning
+                        else (30.0 if experimental_kld7_trackman_calibration else 15.0)
+                    )
                     if (
-                        abs(kld7_angle_h.horizontal_deg) <= 15.0
+                        abs(kld7_angle_h.horizontal_deg) <= horizontal_limit
                         and kld7_angle_h.confidence >= _MIN_HORIZONTAL_RADAR_CONFIDENCE
                     ):
                         shot.launch_angle_horizontal = kld7_angle_h.horizontal_deg
@@ -1172,13 +1490,15 @@ def on_shot_detected(shot: Shot):
                             shot.launch_angle_confidence = kld7_angle_h.confidence
                         logger.info(
                             "[SERVER] Horizontal angle: %.1f° (conf=%.0f%%, %d frames)",
-                            kld7_angle_h.horizontal_deg, kld7_angle_h.confidence * 100,
+                            kld7_angle_h.horizontal_deg,
+                            kld7_angle_h.confidence * 100,
                             kld7_angle_h.num_frames,
                         )
-                    elif abs(kld7_angle_h.horizontal_deg) > 15.0:
+                    elif abs(kld7_angle_h.horizontal_deg) > horizontal_limit:
                         logger.warning(
-                            "[SERVER] Horizontal angle %.1f° rejected: exceeds ±15°",
+                            "[SERVER] Horizontal angle %.1f° rejected: exceeds ±%.0f°",
                             kld7_angle_h.horizontal_deg,
+                            horizontal_limit,
                         )
                     elif kld7_angle_h.confidence < _MIN_HORIZONTAL_RADAR_CONFIDENCE:
                         logger.warning(
@@ -1199,8 +1519,11 @@ def on_shot_detected(shot: Shot):
                     )
                     if club_angle_h and club_angle_h.horizontal_deg is not None:
                         shot.club_path_deg = club_angle_h.horizontal_deg
-                        logger.info("[SERVER] Club path: %.1f° (conf=%.0f%%)",
-                                     club_angle_h.horizontal_deg, club_angle_h.confidence * 100)
+                        logger.info(
+                            "[SERVER] Club path: %.1f° (conf=%.0f%%)",
+                            club_angle_h.horizontal_deg,
+                            club_angle_h.confidence * 100,
+                        )
 
                 if session_log and raw_buffer_h:
                     session_log.log_kld7_buffer(
@@ -1208,8 +1531,14 @@ def on_shot_detected(shot: Shot):
                         shot_timestamp=shot_ts,
                         orientation="horizontal",
                         buffer_frames=raw_buffer_h,
-                        ball_angle=_kld7_angle_log_payload(kld7_angle_h, "horizontal_deg"),
+                        ball_angle=_kld7_angle_log_payload(
+                            kld7_angle_h,
+                            "horizontal_deg",
+                            raw_angle_deg=raw_horizontal_angle_deg,
+                            calibration_details=horizontal_calibration_details,
+                        ),
                         club_angle=_kld7_angle_log_payload(club_angle_h, "horizontal_deg"),
+                        raw_payload_expected=raw_payload_expected_h,
                     )
 
                 kld7_horizontal.reset()
@@ -1217,8 +1546,12 @@ def on_shot_detected(shot: Shot):
             # Derive spin axis from face angle (H. launch) minus club path
             if shot.launch_angle_horizontal is not None and shot.club_path_deg is not None:
                 shot.spin_axis_deg = round(shot.launch_angle_horizontal - shot.club_path_deg, 1)
-                logger.info("[SERVER] Spin axis: %+.1f° (face=%+.1f° - path=%+.1f°)",
-                             shot.spin_axis_deg, shot.launch_angle_horizontal, shot.club_path_deg)
+                logger.info(
+                    "[SERVER] Spin axis: %+.1f° (face=%+.1f° - path=%+.1f°)",
+                    shot.spin_axis_deg,
+                    shot.launch_angle_horizontal,
+                    shot.club_path_deg,
+                )
 
             if kld7_vertical or kld7_horizontal:
                 kld7_ms = (time.time() - kld7_start) * 1000
@@ -1231,7 +1564,12 @@ def on_shot_detected(shot: Shot):
     # Skip if K-LD7 already provided vertical angle
     camera_data = None
     try:
-        if camera_tracker and camera_enabled and shot.mode != "mock" and shot.launch_angle_vertical is None:
+        if (
+            camera_tracker
+            and camera_enabled
+            and shot.mode != "mock"
+            and shot.launch_angle_vertical is None
+        ):
             launch_angle = camera_tracker.calculate_launch_angle()
             if launch_angle:
                 # Update shot object with launch angle data
@@ -1274,11 +1612,16 @@ def on_shot_detected(shot: Shot):
     _MIN_RELIABLE_SPIN_CONF = 0.6
     if shot.carry_spin_adjusted is None and shot.mode != "mock":
         has_reliable_spin = (
-            shot.spin_rpm and shot.spin_rpm > 0
+            shot.spin_rpm
+            and shot.spin_rpm > 0
             and shot.spin_confidence is not None
             and shot.spin_confidence >= _MIN_RELIABLE_SPIN_CONF
         )
-        spin_for_carry = shot.spin_rpm if has_reliable_spin else get_optimal_spin_for_ball_speed(shot.ball_speed_mph, shot.club)
+        spin_for_carry = (
+            shot.spin_rpm
+            if has_reliable_spin
+            else get_optimal_spin_for_ball_speed(shot.ball_speed_mph, shot.club)
+        )
         shot.carry_spin_adjusted = estimate_carry_with_spin(
             shot.ball_speed_mph,
             spin_for_carry,
@@ -1287,7 +1630,8 @@ def on_shot_detected(shot: Shot):
         )
         logger.info(
             "[SERVER] Spin-adjusted carry: %.0f yds (spin: %.0f rpm%s)",
-            shot.carry_spin_adjusted, spin_for_carry,
+            shot.carry_spin_adjusted,
+            spin_for_carry,
             "" if shot.spin_rpm and shot.spin_rpm > 0 else " avg",
         )
     if shot.spin_rejection_reason:
@@ -1295,8 +1639,7 @@ def on_shot_detected(shot: Shot):
             "[SERVER] Spin unavailable: %s (snr=%s, candidate=%s rpm)",
             shot.spin_rejection_reason,
             "%.2f" % shot.spin_snr if shot.spin_snr is not None else "N/A",
-            "%.0f" % (shot.spin_peak_freq_hz * 60)
-            if shot.spin_peak_freq_hz is not None else "N/A",
+            "%.0f" % (shot.spin_peak_freq_hz * 60) if shot.spin_peak_freq_hz is not None else "N/A",
         )
 
     # Log shot with all data (radar + spin + camera) in one entry
@@ -1436,8 +1779,12 @@ def start_monitor(
 
     monitor.connect()
 
-    logger.info("[SERVER] Starting monitor: mode=%s, trigger=%s, sample_rate=%dksps",
-                "mock" if mock else "rolling-buffer", trigger_type, sample_rate_ksps)
+    logger.info(
+        "[SERVER] Starting monitor: mode=%s, trigger=%s, sample_rate=%dksps",
+        "mock" if mock else "rolling-buffer",
+        trigger_type,
+        sample_rate_ksps,
+    )
 
     # Start session logging
     session_logger = get_session_logger()
@@ -1448,7 +1795,7 @@ def start_monitor(
             firmware_version=radar_info.get("Version"),
             camera_enabled=camera is not None,
             camera_model="hough" if (camera_tracker and camera_tracker.use_hough) else None,
-            config=radar_config.copy(),
+            config=_session_start_config(),
             mode="mock" if mock else "rolling-buffer",
             trigger_type=trigger_type if not mock else None,
         )
@@ -1456,7 +1803,7 @@ def start_monitor(
             session_logger.log_connection(
                 device="ops243",
                 port=port or "auto",
-                baud=getattr(monitor.radar, 'baud', 0) if hasattr(monitor, 'radar') else 0,
+                baud=getattr(monitor.radar, "baud", 0) if hasattr(monitor, "radar") else 0,
                 firmware=radar_info.get("Version"),
             )
 
@@ -1782,7 +2129,9 @@ def main():
         "--kld7", action="store_true", help="Enable K-LD7 vertical angle radar (launch angle)"
     )
     parser.add_argument(
-        "--kld7-port", default=None, help="K-LD7 vertical serial port (auto-detect if not specified)"
+        "--kld7-port",
+        default=None,
+        help="K-LD7 vertical serial port (auto-detect if not specified)",
     )
     parser.add_argument(
         "--kld7-angle-offset",
@@ -1791,18 +2140,102 @@ def main():
         help="K-LD7 vertical angle offset in degrees (default: 0.0)",
     )
     parser.add_argument(
-        "--kld7-horizontal", action="store_true", help="Enable K-LD7 horizontal angle radar (club path)"
+        "--kld7-horizontal",
+        action="store_true",
+        help="Enable K-LD7 horizontal angle radar (club path)",
     )
-    parser.add_argument(
-        "--kld7-horizontal-port", default=None, help="K-LD7 horizontal serial port"
-    )
+    parser.add_argument("--kld7-horizontal-port", default=None, help="K-LD7 horizontal serial port")
     parser.add_argument(
         "--kld7-horizontal-offset",
         type=float,
         default=0.0,
         help="K-LD7 horizontal angle offset in degrees (default: 0.0)",
     )
+    parser.add_argument(
+        "--experimental-kld7-trackman-calibration",
+        action="store_true",
+        help=(
+            "Enable the temporary TrackMan-trained K-LD7 angle correction "
+            "experiment (off by default)"
+        ),
+    )
+    parser.add_argument(
+        "--experimental-kld7-raw-radc-logging",
+        action="store_true",
+        help=(
+            "Include base64 raw K-LD7 RADC payloads in kld7_buffer session logs "
+            "for TrackMan replay without changing live angle extraction"
+        ),
+    )
+    parser.add_argument(
+        "--experimental-kld7-radc-tuning",
+        action="store_true",
+        help=("Enable temporary K-LD7 RADC extraction tuning parameters (off by default)"),
+    )
+    parser.add_argument(
+        "--experimental-kld7-speed-tolerance",
+        type=float,
+        default=10.0,
+        help="Experimental K-LD7 RADC speed tolerance in mph (default: 10.0)",
+    )
+    parser.add_argument(
+        "--experimental-kld7-centroid-floor",
+        type=float,
+        default=0.5,
+        help="Experimental K-LD7 RADC centroid floor fraction (default: 0.5)",
+    )
+    parser.add_argument(
+        "--experimental-kld7-ops-bin-tol",
+        type=int,
+        default=25,
+        help="Experimental K-LD7 RADC OPS-bin outlier tolerance (default: 25)",
+    )
+    parser.add_argument(
+        "--experimental-kld7-ops-bin-penalty",
+        type=float,
+        default=10.0,
+        help="Experimental K-LD7 RADC OPS-bin outlier penalty (default: 10.0)",
+    )
+    parser.add_argument(
+        "--experimental-kld7-ops-anchored-min-snr",
+        type=float,
+        default=5.0,
+        help="Experimental K-LD7 RADC OPS-anchored local peak minimum SNR (default: 5.0)",
+    )
+    parser.add_argument(
+        "--experimental-kld7-vertical-impact-energy",
+        type=float,
+        default=3.0,
+        help="Experimental vertical K-LD7 RADC impact energy threshold (default: 3.0)",
+    )
+    parser.add_argument(
+        "--experimental-kld7-horizontal-impact-energy",
+        type=float,
+        default=1.85,
+        help="Experimental horizontal K-LD7 RADC impact energy threshold (default: 1.85)",
+    )
+    parser.add_argument(
+        "--experimental-kld7-horizontal-retry-impact-energy",
+        type=float,
+        default=0.5,
+        help=("Experimental horizontal K-LD7 RADC retry impact energy threshold (default: 0.5)"),
+    )
+    parser.add_argument(
+        "--experimental-kld7-horizontal-angle-limit",
+        type=float,
+        default=15.0,
+        help="Experimental horizontal K-LD7 RADC angle acceptance limit in degrees (default: 15.0)",
+    )
     args = parser.parse_args()
+
+    global experimental_kld7_trackman_calibration, experimental_kld7_radc_tuning
+    global experimental_kld7_raw_radc_logging
+    global active_kld7_radc_tuning
+    experimental_kld7_trackman_calibration = args.experimental_kld7_trackman_calibration
+    experimental_kld7_raw_radc_logging = args.experimental_kld7_raw_radc_logging
+    experimental_kld7_radc_tuning = args.experimental_kld7_radc_tuning
+    kld7_radc_tuning_kwargs = _kld7_radc_tuning_kwargs(args)
+    active_kld7_radc_tuning = dict(kld7_radc_tuning_kwargs)
 
     # Configure logging - always show INFO and above for openflight modules
     # This ensures trigger events and important messages are visible
@@ -1873,20 +2306,43 @@ def main():
     else:
         print("Camera disabled by --no-camera flag")
 
+    if experimental_kld7_trackman_calibration:
+        print("Experimental K-LD7 TrackMan calibration enabled")
+    if experimental_kld7_raw_radc_logging:
+        print("Experimental K-LD7 raw RADC payload logging enabled")
+    if experimental_kld7_radc_tuning:
+        print(f"Experimental K-LD7 RADC tuning enabled: {kld7_radc_tuning_kwargs}")
+
     # Initialize K-LD7 angle radars (if enabled)
     if args.kld7:
-        if init_kld7(port=args.kld7_port, orientation="vertical",
-                     angle_offset_deg=args.kld7_angle_offset, base_freq=0):
-            offset_str = f", offset: {args.kld7_angle_offset:+.1f}°" if args.kld7_angle_offset else ""
+        if init_kld7(
+            port=args.kld7_port,
+            orientation="vertical",
+            angle_offset_deg=args.kld7_angle_offset,
+            base_freq=0,
+            **kld7_radc_tuning_kwargs,
+        ):
+            offset_str = (
+                f", offset: {args.kld7_angle_offset:+.1f}°" if args.kld7_angle_offset else ""
+            )
             print(f"K-LD7 vertical radar enabled (launch angle{offset_str})")
         else:
             print("ERROR: K-LD7 vertical requested but failed to connect. Exiting.")
             sys.exit(1)
 
     if args.kld7_horizontal:
-        if init_kld7(port=args.kld7_horizontal_port, orientation="horizontal",
-                     angle_offset_deg=args.kld7_horizontal_offset, base_freq=2):
-            offset_str = f", offset: {args.kld7_horizontal_offset:+.1f}°" if args.kld7_horizontal_offset else ""
+        if init_kld7(
+            port=args.kld7_horizontal_port,
+            orientation="horizontal",
+            angle_offset_deg=args.kld7_horizontal_offset,
+            base_freq=2,
+            **kld7_radc_tuning_kwargs,
+        ):
+            offset_str = (
+                f", offset: {args.kld7_horizontal_offset:+.1f}°"
+                if args.kld7_horizontal_offset
+                else ""
+            )
             print(f"K-LD7 horizontal radar enabled (club path{offset_str})")
         else:
             print("ERROR: K-LD7 horizontal requested but failed to connect. Exiting.")
