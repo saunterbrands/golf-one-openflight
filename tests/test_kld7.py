@@ -259,7 +259,6 @@ class TestKLD7TrackerRingBuffer:
         tracker.orientation = orientation
         tracker.buffer_seconds = 2.0
         tracker.max_buffer_frames = 70
-        tracker.radc_stream_min_interval_s = 0.05
         tracker._init_ring_buffer()
         return tracker
 
@@ -329,13 +328,6 @@ class TestKLD7TrackerRingBuffer:
             tracker._add_frame(KLD7Frame(timestamp=now + i * 0.03))
         assert tracker.get_angle_for_shot() is None
 
-    def test_radc_stream_rate_defaults_by_orientation(self):
-        vertical = KLD7Tracker(orientation="vertical")
-        horizontal = KLD7Tracker(orientation="horizontal")
-
-        assert vertical.radc_stream_min_interval_s == pytest.approx(0.05)
-        assert horizontal.radc_stream_min_interval_s == pytest.approx(0.05)
-
     def test_connect_fails_fast_when_explicit_dev_symlink_is_missing(self, monkeypatch, caplog):
         """Missing /dev/kld7_* aliases should not retry GBYE against a nonexistent path."""
         import logging
@@ -386,7 +378,7 @@ class TestKLD7TrackerRingBuffer:
                 self.calls = 0
                 self.drain_calls = 0
 
-            def stream_frames(self, frame_codes, max_count=-1, min_frame_interval=0):
+            def stream_frames(self, frame_codes, max_count=-1):
                 self.calls += 1
                 yield ("RADC", bytes([self.calls]) * 3072)
                 if self.calls == 1:
@@ -469,8 +461,8 @@ class TestKLD7TrackerRingBuffer:
 
         assert radar._port.pending == bytearray()
 
-    def test_stream_loop_throttles_radc_requests(self, monkeypatch):
-        """RADC streaming should leave a small margin below max frame rate."""
+    def test_stream_loop_requests_radc_at_max_rate(self, monkeypatch):
+        """RADC streaming should use the K-LD7 library's max-rate mode."""
         fake_kld7 = ModuleType("kld7")
         fake_kld7.FrameCode = SimpleNamespace(RADC="RADC")
 
@@ -485,10 +477,10 @@ class TestKLD7TrackerRingBuffer:
 
         class FakeRadar:
             def __init__(self):
-                self.min_frame_interval = None
+                self.calls = []
 
-            def stream_frames(self, frame_codes, max_count=-1, min_frame_interval=None):
-                self.min_frame_interval = min_frame_interval
+            def stream_frames(self, *args, **kwargs):
+                self.calls.append((args, kwargs))
                 yield ("RADC", b"\x7f" * 3072)
                 tracker._running = False
 
@@ -498,7 +490,7 @@ class TestKLD7TrackerRingBuffer:
 
         tracker._stream_loop()
 
-        assert radar.min_frame_interval == pytest.approx(0.05)
+        assert radar.calls == [(("RADC",), {"max_count": -1})]
 
     def test_stream_loop_reconnects_after_consecutive_timeouts(self, monkeypatch):
         """Repeated command timeouts should trigger a full K-LD7 reconnect."""
@@ -520,7 +512,7 @@ class TestKLD7TrackerRingBuffer:
                 self.drain_calls = 0
                 self.closed = False
 
-            def stream_frames(self, frame_codes, max_count=-1, min_frame_interval=0):
+            def stream_frames(self, frame_codes, max_count=-1):
                 self.calls += 1
                 raise FakeKLD7Exception("Timeout waiting for reply")
 
@@ -531,7 +523,7 @@ class TestKLD7TrackerRingBuffer:
                 self.closed = True
 
         class RecoveredRadar:
-            def stream_frames(self, frame_codes, max_count=-1, min_frame_interval=0):
+            def stream_frames(self, frame_codes, max_count=-1):
                 yield ("RADC", b"\x7f" * 3072)
                 tracker._running = False
 

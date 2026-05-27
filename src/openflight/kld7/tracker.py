@@ -15,9 +15,6 @@ from .types import KLD7Angle, KLD7Frame
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_VERTICAL_RADC_STREAM_MIN_INTERVAL_S = 0.05
-_DEFAULT_HORIZONTAL_RADC_STREAM_MIN_INTERVAL_S = 0.05
-
 
 def _is_recoverable_stream_error(error: BaseException) -> bool:
     """Return True for transient serial failures seen during live K-LD7 streaming."""
@@ -62,13 +59,6 @@ def _available_serial_device_summary() -> str:
     return ", ".join(candidates)
 
 
-def _default_radc_stream_min_interval_s(orientation: str) -> float:
-    """Return the default RADC polling interval for a K-LD7 orientation."""
-    if orientation == "horizontal":
-        return _DEFAULT_HORIZONTAL_RADC_STREAM_MIN_INTERVAL_S
-    return _DEFAULT_VERTICAL_RADC_STREAM_MIN_INTERVAL_S
-
-
 def _resolved_serial_port(port: str) -> str:
     """Resolve aliases like /dev/kld7_horizontal to the underlying serial device."""
     try:
@@ -100,7 +90,6 @@ class KLD7Tracker:
     radc_horizontal_impact_energy_threshold = 1.85
     radc_horizontal_retry_impact_energy_threshold = 0.5
     radc_horizontal_angle_limit_deg = 15.0
-    radc_stream_min_interval_s = _DEFAULT_VERTICAL_RADC_STREAM_MIN_INTERVAL_S
 
     def __init__(
         self,
@@ -120,7 +109,6 @@ class KLD7Tracker:
         radc_horizontal_impact_energy_threshold: float = 1.85,
         radc_horizontal_retry_impact_energy_threshold: float = 0.5,
         radc_horizontal_angle_limit_deg: float = 15.0,
-        radc_stream_min_interval_s: Optional[float] = None,
     ):
         self.port = port
         self.range_m = range_m
@@ -140,11 +128,6 @@ class KLD7Tracker:
             radc_horizontal_retry_impact_energy_threshold
         )
         self.radc_horizontal_angle_limit_deg = radc_horizontal_angle_limit_deg
-        self.radc_stream_min_interval_s = (
-            _default_radc_stream_min_interval_s(orientation)
-            if radc_stream_min_interval_s is None
-            else radc_stream_min_interval_s
-        )
         self.max_buffer_frames = int(34 * buffer_seconds)
 
         self._radar = None
@@ -329,11 +312,7 @@ class KLD7Tracker:
         last_health_t = time.time()
         last_health_count = 0
 
-        logger.info(
-            "[KLD7] Stream started: RADC only (3Mbaud, %.1f Hz target, %s)",
-            1.0 / max(self.radc_stream_min_interval_s, 0.001),
-            self.orientation,
-        )
+        logger.info("[KLD7] Stream started: RADC only (3Mbaud, max rate, %s)", self.orientation)
 
         # Note: the robust _read_packet patch is applied during connect()
         # via serial_io.connect_with_recovery, so we don't need to
@@ -341,11 +320,7 @@ class KLD7Tracker:
 
         while self._running:
             try:
-                for code, payload in self._radar.stream_frames(
-                    frame_codes,
-                    max_count=-1,
-                    min_frame_interval=self.radc_stream_min_interval_s,
-                ):
+                for code, payload in self._radar.stream_frames(frame_codes, max_count=-1):
                     if not self._running:
                         break
 
@@ -379,8 +354,7 @@ class KLD7Tracker:
                         elapsed = now - last_health_t
                         if elapsed >= HEALTH_INTERVAL_S:
                             hz = (frame_count - last_health_count) / elapsed
-                            expected_hz = 1.0 / max(self.radc_stream_min_interval_s, 0.001)
-                            log_fn = logger.warning if hz < expected_hz * 0.75 else logger.info
+                            log_fn = logger.warning if hz < 25.0 else logger.info
                             log_fn(
                                 "[KLD7] Stream health (%s): %.1f Hz over last %.0fs (total=%d)",
                                 self.orientation,
