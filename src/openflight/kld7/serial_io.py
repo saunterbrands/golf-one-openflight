@@ -134,7 +134,7 @@ def install_robust_read_packet(radar: Any) -> None:
         return reply, payload
 
     def _robust_get_response(device: Any):
-        from kld7 import Response  # type: ignore[import-not-found]
+        from kld7.device import Response  # type: ignore[import-not-found]
 
         stale_packets = 0
         while stale_packets <= _MAX_STALE_RESPONSE_PACKETS:

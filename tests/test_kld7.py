@@ -165,6 +165,7 @@ class TestKLD7SerialIO:
 
     def test_robust_get_response_skips_stale_stream_packets(self, monkeypatch):
         fake_kld7 = ModuleType("kld7")
+        fake_device = ModuleType("kld7.device")
 
         class FakeKLD7Exception(Exception):
             pass
@@ -174,8 +175,9 @@ class TestKLD7SerialIO:
             MAX_RESPONSE = 10
 
         fake_kld7.KLD7Exception = FakeKLD7Exception
-        fake_kld7.Response = FakeResponse
+        fake_device.Response = FakeResponse
         monkeypatch.setitem(sys.modules, "kld7", fake_kld7)
+        monkeypatch.setitem(sys.modules, "kld7.device", fake_device)
 
         from openflight.kld7.serial_io import install_robust_read_packet
 
