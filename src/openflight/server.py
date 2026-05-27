@@ -1752,6 +1752,7 @@ def on_shot_detected(shot: Shot):
                 club_angle_deg=shot.club_angle_deg,
                 club_path_deg=shot.club_path_deg,
                 spin_axis_deg=shot.spin_axis_deg,
+                impact_timestamp=shot.impact_timestamp,
                 pipeline_ms={
                     "kld7": round(kld7_ms, 1) if kld7_ms is not None else None,
                 },

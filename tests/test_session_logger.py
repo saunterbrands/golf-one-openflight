@@ -191,6 +191,7 @@ class TestLogShot:
             launch_angle_horizontal_confidence=0.6,
             launch_angle_vertical_source="radar",
             launch_angle_horizontal_source="estimated",
+            impact_timestamp=1234567890.25,
         )
 
         lines = logger.session_path.read_text().strip().split("\n")
@@ -212,6 +213,31 @@ class TestLogShot:
         assert entry["launch_angle_horizontal_confidence"] == 0.6
         assert entry["launch_angle_vertical_source"] == "radar"
         assert entry["launch_angle_horizontal_source"] == "estimated"
+        assert entry["impact_timestamp"] == 1234567890.25
+
+    def test_rolling_buffer_capture_logs_trigger_timing(self, tmp_path):
+        """Rolling-buffer captures should preserve host trigger timing fields."""
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        logger.log_rolling_buffer_capture(
+            shot_number=1,
+            sample_time=100.0,
+            trigger_time=100.068,
+            i_samples=[2048] * 4,
+            q_samples=[2048] * 4,
+            first_byte_timestamp=1234567890.25,
+            trigger_timestamp=1234567890.182,
+            post_trigger_duration_ms=68.0,
+        )
+
+        lines = logger.session_path.read_text().strip().split("\n")
+        entry = json.loads(lines[-1])
+
+        assert entry["type"] == "rolling_buffer_capture"
+        assert entry["first_byte_timestamp"] == 1234567890.25
+        assert entry["trigger_timestamp"] == 1234567890.182
+        assert entry["post_trigger_duration_ms"] == 68.0
 
 
 class TestLogKld7Buffer:

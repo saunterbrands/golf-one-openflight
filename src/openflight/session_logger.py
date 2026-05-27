@@ -308,6 +308,7 @@ class SessionLogger:
         club_path_deg: Optional[float] = None,
         spin_axis_deg: Optional[float] = None,
         pipeline_ms: Optional[Dict] = None,
+        impact_timestamp: Optional[float] = None,
     ):
         """
         Log a detected shot with all metrics.
@@ -339,6 +340,7 @@ class SessionLogger:
             spin_rejection_reason: Human-readable reason if spin was rejected
             carry_spin_adjusted: Carry distance adjusted for spin (rolling buffer mode only)
             mode: Radar mode ("rolling-buffer" or "mock")
+            impact_timestamp: Host epoch timestamp aligned to impact/OPS trigger time
         """
         if not self.enabled:
             return
@@ -383,6 +385,7 @@ class SessionLogger:
             "launch_angle_horizontal_confidence": launch_angle_horizontal_confidence,
             "launch_angle_vertical_source": launch_angle_vertical_source,
             "launch_angle_horizontal_source": launch_angle_horizontal_source,
+            "impact_timestamp": impact_timestamp,
         }
 
         if angle_source is not None:
@@ -711,6 +714,9 @@ class SessionLogger:
         spin_phase_agreement_pct: Optional[float] = None,
         spin_phase_confirmed: Optional[bool] = None,
         spin_rejection_reason: Optional[str] = None,
+        first_byte_timestamp: Optional[float] = None,
+        trigger_timestamp: Optional[float] = None,
+        post_trigger_duration_ms: Optional[float] = None,
     ):
         """
         Log raw rolling buffer capture data for offline analysis.
@@ -747,6 +753,10 @@ class SessionLogger:
             spin_phase_confirmed: True when phase recovered a low-SNR spin
             spin_rejection_reason: Human-readable reason if spin was
                 rejected (None on a clean accept)
+            first_byte_timestamp: Host epoch timestamp when the first byte
+                of the hardware-triggered rolling-buffer dump arrived
+            trigger_timestamp: Host epoch timestamp of the inferred hardware trigger
+            post_trigger_duration_ms: Duration of the capture after trigger
         """
         if not self.enabled:
             return
@@ -766,6 +776,9 @@ class SessionLogger:
                 "ball_timestamp_ms": ball_timestamp_ms,
                 "club_timestamp_ms": club_timestamp_ms,
                 "trigger_latency_ms": trigger_latency_ms,
+                "first_byte_timestamp": first_byte_timestamp,
+                "trigger_timestamp": trigger_timestamp,
+                "post_trigger_duration_ms": post_trigger_duration_ms,
                 "smash_factor": smash_factor,
                 "spin_rpm": spin_rpm,
                 "spin_confidence": spin_confidence,
