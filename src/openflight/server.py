@@ -914,6 +914,9 @@ def init_kld7(
     radc_horizontal_impact_energy_threshold=1.85,
     radc_horizontal_retry_impact_energy_threshold=0.5,
     radc_horizontal_angle_limit_deg=15.0,
+    vertical_estimator="geometry",
+    mount_tilt_deg=18.0,
+    ball_distance_ft=5.5,
 ) -> bool:
     """Initialize a single K-LD7 angle radar tracker.
 
@@ -941,6 +944,9 @@ def init_kld7(
                 radc_horizontal_retry_impact_energy_threshold
             ),
             radc_horizontal_angle_limit_deg=radc_horizontal_angle_limit_deg,
+            vertical_estimator=vertical_estimator,
+            mount_tilt_deg=mount_tilt_deg,
+            ball_distance_ft=ball_distance_ft,
         )
         if tracker.connect():
             tracker.start()
@@ -1476,6 +1482,7 @@ def on_shot_detected(shot: Shot):
                 kld7_angle = kld7_vertical.get_angle_for_shot(
                     shot_timestamp=shot_ts,
                     ball_speed_mph=shot.ball_speed_mph,
+                    impact_timestamp=shot.impact_timestamp_kld7,
                 )
                 vertical_selection_details = None
                 if kld7_angle and kld7_angle.vertical_deg is not None:
@@ -2254,6 +2261,30 @@ def main():
         help="K-LD7 vertical angle offset in degrees (default: 0.0)",
     )
     parser.add_argument(
+        "--kld7-vertical-estimator",
+        choices=("geometry", "naive"),
+        default="geometry",
+        help=(
+            "Vertical launch-angle estimator: 'geometry' (trajectory fit, "
+            "default) or 'naive' (legacy bearing average + offset)"
+        ),
+    )
+    parser.add_argument(
+        "--kld7-mount-tilt",
+        type=float,
+        default=18.0,
+        help="K-LD7 vertical radar mount tilt in degrees, for the geometry estimator (default: 18.0)",
+    )
+    parser.add_argument(
+        "--kld7-ball-distance",
+        type=float,
+        default=5.5,
+        help=(
+            "Ball-to-radar-front distance in feet, for the geometry estimator "
+            "(weak lever; default: 5.5)"
+        ),
+    )
+    parser.add_argument(
         "--kld7-horizontal",
         action="store_true",
         help="Enable K-LD7 horizontal angle radar (club path)",
@@ -2423,6 +2454,9 @@ def main():
             orientation="vertical",
             angle_offset_deg=args.kld7_angle_offset,
             base_freq=0,
+            vertical_estimator=args.kld7_vertical_estimator,
+            mount_tilt_deg=args.kld7_mount_tilt,
+            ball_distance_ft=args.kld7_ball_distance,
             **kld7_radc_tuning_kwargs,
         ):
             offset_str = (

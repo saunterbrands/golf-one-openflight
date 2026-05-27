@@ -7,6 +7,7 @@ angle extraction from K-LD7 24 GHz radar raw ADC data.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import asdict, dataclass
 
 import numpy as np
@@ -977,6 +978,91 @@ def find_impact_frames(
     return impact_indices
 
 
+# --- Geometric vertical launch-angle fit -------------------------------------
+# The radar measures BEARING (angle of arrival to the ball's *current* position),
+# not the launch angle. Early in flight the ball is low and close to the radar,
+# so the bearing is much shallower than the velocity direction — treating the
+# bearing as the launch angle reads ~7° low AND with the wrong slope (a fixed
+# offset can't fix it; the gap grows ~0.4° per 1° of launch). Instead we invert
+# the trajectory geometry: given per-frame (flight_time, bearing) plus the setup
+# (ball speed, mount tilt, ball-to-radar distance, ball-below-radar offset), grid
+# search the launch angle whose predicted bearing trajectory best fits the
+# measured bearings. Validated to ~2.3° MAE / near-zero bias on confirmed-geometry
+# sessions; range D is a weak lever (±1 ft ≈ 0.2° MAE), so a fixed D is shippable.
+MPH_TO_FTS = 1.46667
+GEOM_BALL_ABOVE_RADAR_FT = -4.0 / 12.0  # ball sits ~4" below the radar center
+GEOM_FLIGHT_T_MAX_S = 0.150  # ignore frames beyond plausible in-net flight time
+GEOM_ALPHA_MIN_DEG = 0.0
+GEOM_ALPHA_MAX_DEG = 45.0
+GEOM_ALPHA_STEP_DEG = 0.1
+
+
+def predicted_bearing_deg(
+    alpha_deg: float,
+    flight_time_s: float,
+    ball_speed_mph: float,
+    distance_ft: float,
+    mount_deg: float,
+    ball_above_radar_ft: float = GEOM_BALL_ABOVE_RADAR_FT,
+) -> float:
+    """Bearing the radar should measure for a ball launched at ``alpha_deg``.
+
+    Models the ball as a point launched at the tee (``distance_ft`` downrange,
+    ``ball_above_radar_ft`` vertically relative to the radar center) flying in a
+    straight line at ``ball_speed_mph``; gravity is negligible over the <150 ms
+    the ball is in view. Returns the angle of arrival to the ball's current
+    position in the radar's frame (mount tilt subtracted).
+    """
+    v_fts = ball_speed_mph * MPH_TO_FTS
+    a = math.radians(alpha_deg)
+    x = distance_ft + v_fts * math.cos(a) * flight_time_s
+    y = ball_above_radar_ft + v_fts * math.sin(a) * flight_time_s
+    return math.degrees(math.atan2(y, x)) - mount_deg
+
+
+def fit_launch_angle_geometric(
+    per_frame: list[tuple[float, float, float]],
+    ball_speed_mph: float,
+    distance_ft: float,
+    mount_deg: float,
+    ball_above_radar_ft: float = GEOM_BALL_ABOVE_RADAR_FT,
+) -> tuple[float, float, int] | None:
+    """Fit vertical launch angle from per-frame ``(flight_time_s, bearing_deg, weight)``.
+
+    Grid-searches the launch angle whose predicted bearing trajectory minimizes
+    the weight-scaled squared bearing residual. Only frames inside the plausible
+    in-flight window (0 < t <= ``GEOM_FLIGHT_T_MAX_S``) are used. Returns
+    ``(alpha_deg, rmse_deg, n_used)`` or ``None`` if fewer than 2 such frames
+    are available (the geometry is underdetermined with a single bearing).
+    """
+    pts = [
+        (t, b, max(float(w), 0.0))
+        for (t, b, w) in per_frame
+        if t is not None and 0.0 < t <= GEOM_FLIGHT_T_MAX_S
+    ]
+    wsum = sum(w for _, _, w in pts)
+    if len(pts) < 2 or wsum <= 0.0:
+        return None
+
+    best_alpha = GEOM_ALPHA_MIN_DEG
+    best_ss = math.inf
+    steps = int(round((GEOM_ALPHA_MAX_DEG - GEOM_ALPHA_MIN_DEG) / GEOM_ALPHA_STEP_DEG))
+    for i in range(steps + 1):
+        alpha = GEOM_ALPHA_MIN_DEG + i * GEOM_ALPHA_STEP_DEG
+        ss = 0.0
+        for t, b, w in pts:
+            resid = b - predicted_bearing_deg(
+                alpha, t, ball_speed_mph, distance_ft, mount_deg, ball_above_radar_ft
+            )
+            ss += w * resid * resid
+        if ss < best_ss:
+            best_ss = ss
+            best_alpha = alpha
+
+    rmse = math.sqrt(best_ss / wsum)
+    return float(best_alpha), float(rmse), len(pts)
+
+
 def extract_launch_angle(
     frames: list[dict],
     fft_size: int = 2048,
@@ -993,6 +1079,10 @@ def extract_launch_angle(
     ops_anchored_peak_min_snr: float = OPS_ANCHORED_PEAK_MIN_SNR,
     require_ops_anchored_peak: bool = False,
     horizontal_angle_limit_deg: float = 15.0,
+    vertical_estimator: str = "naive",
+    shot_timestamp: float | None = None,
+    mount_deg: float | None = None,
+    distance_ft: float | None = None,
 ) -> list[dict]:
     """Extract vertical launch angle per shot from RADC frames.
 
@@ -1050,6 +1140,19 @@ def extract_launch_angle(
             used to reject obvious side-angle false positives. Default
             remains ±15° for production; experimental TrackMan replay can
             raise this when validating wider horizontal launch targets.
+        vertical_estimator: "naive" (SNR²-weighted bearing average + offset,
+            the legacy behavior) or "geometry" (trajectory-fit launch angle).
+            Geometry only applies to vertical orientation; it requires
+            shot_timestamp, mount_deg, distance_ft, and ops243_ball_speed_mph,
+            and falls back to naive when fewer than 2 in-flight frames are
+            available. See fit_launch_angle_geometric for the rationale.
+        shot_timestamp: Epoch time of impact, used to compute each frame's
+            flight time (frame_timestamp - shot_timestamp) for the geometry
+            estimator. Must be the true impact instant, not the raw rolling-
+            buffer first-byte time (the geometry is ~0.08°/ms sensitive).
+        mount_deg: Radar mount tilt in degrees (geometry estimator only).
+        distance_ft: Ball-to-radar-front distance in feet (geometry estimator
+            only). A weak lever — a fixed install value is fine (±1 ft ≈ 0.2° MAE).
 
     Returns a list of shot dicts, one per detected shot. Each contains
     launch_angle_deg, ball_speed_mph, confidence, and supporting data.
@@ -1125,11 +1228,18 @@ def extract_launch_angle(
         peak_snrs = []
         peak_speeds_mph = []
         peak_bins: list[int] = []
+        peak_times: list[float | None] = []  # flight time per frame (s), for geometry
 
         for fi in sorted(frame_set):
             radc_raw = frames[fi].get("radc")
             if radc_raw is None:
                 continue
+            frame_ts = frames[fi].get("timestamp")
+            flight_time_s = (
+                float(frame_ts) - shot_timestamp
+                if frame_ts is not None and shot_timestamp is not None
+                else None
+            )
             try:
                 channels = parse_radc_payload(radc_raw) if isinstance(radc_raw, bytes) else radc_raw
             except (KeyError, TypeError, ValueError):
@@ -1220,6 +1330,7 @@ def extract_launch_angle(
             peak_angles.append(centroid_angle)
             peak_snrs.append(snr)
             peak_bins.append(peak_bin)
+            peak_times.append(flight_time_s)
             vel = bin_to_velocity_kmh(peak_bin, fft_size, max_speed_kmh)
             peak_speeds_mph.append((200.0 + vel) / 1.609)
 
@@ -1229,6 +1340,7 @@ def extract_launch_angle(
         angs = np.array(peak_angles)
         snrs = np.array(peak_snrs)
         bins_arr = np.array(peak_bins, dtype=int)
+        times_arr = np.array([np.nan if t is None else t for t in peak_times], dtype=float)
 
         if len(angs) == 1:
             # Single-frame detection — accept if SNR is strong.
@@ -1239,6 +1351,7 @@ def extract_launch_angle(
             clean_angs = angs
             clean_snrs = snrs
             clean_bins = bins_arr
+            clean_times = times_arr
         else:
             # Multi-frame: outlier rejection.
             #
@@ -1262,6 +1375,7 @@ def extract_launch_angle(
             clean_angs = angs[clean_mask]
             clean_snrs = snrs[clean_mask]
             clean_bins = bins_arr[clean_mask]
+            clean_times = times_arr[clean_mask]
 
         # SNR²-weighted average of surviving peaks. When the OPS-expected
         # bin is known, frames whose peak bin is far from it (likely
@@ -1304,7 +1418,40 @@ def extract_launch_angle(
         if total_w <= 0:
             continue
         weighted_angle = float(np.sum(clean_angs * w) / total_w)
+
+        # Default: legacy naive estimator (bearing average + constant offset).
         corrected_angle = weighted_angle + angle_offset_deg
+        estimator_used = "naive"
+        geom_fit_rmse: float | None = None
+
+        # Geometry estimator (vertical only): invert the trajectory geometry
+        # from per-frame (flight_time, bearing) rather than treating the bearing
+        # as the launch angle. Falls back to naive when it can't run (no impact
+        # timing, missing config, or <2 in-flight frames).
+        if (
+            vertical_estimator == "geometry"
+            and orientation == "vertical"
+            and ops243_ball_speed_mph is not None
+            and mount_deg is not None
+            and distance_ft is not None
+        ):
+            per_frame_geom = [
+                (float(clean_times[i]), float(clean_angs[i]), float(w[i]))
+                for i in range(len(clean_angs))
+                if not math.isnan(clean_times[i])
+            ]
+            geom = fit_launch_angle_geometric(
+                per_frame_geom, ops243_ball_speed_mph, distance_ft, mount_deg
+            )
+            if geom is not None:
+                corrected_angle, geom_fit_rmse, _ = geom
+                estimator_used = "geometry"
+            else:
+                logger.info(
+                    "[RADC] Geometry estimator: <2 in-flight frames "
+                    "(flight times ms=%s); falling back to naive bearing average",
+                    [None if math.isnan(t) else round(float(t) * 1000.0, 1) for t in clean_times],
+                )
 
         # Hard physical bounds — reject obvious outliers before they
         # reach the Shot object. Orientation-aware: vertical [0°, 45°],
@@ -1335,7 +1482,13 @@ def extract_launch_angle(
         # detections get a bonus from angle consistency.
         frame_count = len(clean_angs)
         snr_score = min(avg_snr / 10.0, 1.0)
-        if frame_count == 1:
+        if estimator_used == "geometry":
+            # Geometry: confidence from the bearing-trajectory fit RMSE
+            # (how well the per-frame bearings agree with a single launch
+            # angle) blended with SNR. RMSE 0° → 1.0, 6°+ → 0.0.
+            fit_score = max(0.0, 1.0 - (geom_fit_rmse or 0.0) / 6.0)
+            confidence = round(0.30 + snr_score * 0.40 + fit_score * 0.30, 2)
+        elif frame_count == 1:
             # Single frame: confidence driven by SNR alone
             # SNR 5 → 0.50, SNR 10 → 0.75, SNR 15+ → 0.90
             confidence = round(0.40 + snr_score * 0.50, 2)
@@ -1352,6 +1505,10 @@ def extract_launch_angle(
                 "launch_angle_deg": round(corrected_angle, 1),
                 "raw_angle_deg": round(weighted_angle, 1),
                 "angle_offset_deg": angle_offset_deg,
+                "estimator": estimator_used,
+                "geom_fit_rmse_deg": (
+                    round(geom_fit_rmse, 2) if geom_fit_rmse is not None else None
+                ),
                 "ball_speed_mph": round(avg_speed_mph, 1),
                 "confidence": confidence,
                 "detection_count": len(peak_angles),

@@ -756,6 +756,80 @@ class TestRADCAngleExtraction:
             payload += noise.tobytes()
         return payload
 
+    def test_geometry_estimator_fires_end_to_end(self):
+        """vertical_estimator='geometry' should fit the launch angle from the
+        per-frame bearing TRAJECTORY rather than averaging the raw bearings.
+
+        Builds two in-flight frames whose bearings are exactly what a known
+        launch angle would produce at their flight times, then asserts the
+        geometry recovers that angle and tags the result as geometry."""
+        from openflight.kld7.radc import extract_launch_angle, predicted_bearing_deg
+
+        ball_speed_mph = 72.0
+        ball_kmh = ball_speed_mph * 1.609
+        aliased_kmh = ball_kmh % 200.0
+        if aliased_kmh > 100.0:
+            aliased_kmh -= 200.0
+
+        v, d, mount, alpha_true = ball_speed_mph, 5.5, 18.0, 16.0
+        impact_ts = time.time()
+        flight_times = [0.056, 0.112]  # two frames inside the in-flight window
+        quiet = self._make_quiet_radc_payload()
+
+        frames = [{"timestamp": impact_ts - (6 - i) * 0.056, "radc": quiet} for i in range(6)]
+        for t in flight_times:
+            beta = predicted_bearing_deg(alpha_true, t, v, d, mount)
+            # The synth payload measures -angle_deg (see the sign note above),
+            # so inject -beta to make the algorithm see the true bearing beta.
+            radc = self._make_radc_payload_with_tone(aliased_kmh, angle_deg=-beta)
+            frames.append({"timestamp": impact_ts + t, "radc": radc})
+
+        results = extract_launch_angle(
+            frames,
+            ops243_ball_speed_mph=ball_speed_mph,
+            orientation="vertical",
+            vertical_estimator="geometry",
+            shot_timestamp=impact_ts,
+            mount_deg=mount,
+            distance_ft=d,
+        )
+
+        assert results
+        best = results[0]
+        assert best["estimator"] == "geometry"
+        assert best["geom_fit_rmse_deg"] is not None
+        assert abs(best["launch_angle_deg"] - alpha_true) < 3.0
+
+    def test_geometry_estimator_falls_back_to_naive_without_impact_time(self):
+        """Without a shot_timestamp the geometry cannot run; it must fall back."""
+        from openflight.kld7.radc import extract_launch_angle
+
+        ball_speed_mph = 72.0
+        ball_kmh = ball_speed_mph * 1.609
+        aliased_kmh = ball_kmh % 200.0
+        if aliased_kmh > 100.0:
+            aliased_kmh -= 200.0
+
+        now = time.time()
+        radc = self._make_radc_payload_with_tone(aliased_kmh, angle_deg=-12.0)
+        quiet = self._make_quiet_radc_payload()
+        frames = [{"timestamp": now + i * 0.056, "radc": quiet} for i in range(6)]
+        frames.append({"timestamp": now + 0.34, "radc": radc})
+
+        results = extract_launch_angle(
+            frames,
+            ops243_ball_speed_mph=ball_speed_mph,
+            orientation="vertical",
+            vertical_estimator="geometry",
+            shot_timestamp=None,  # no impact timing -> geometry can't compute flight time
+            mount_deg=18.0,
+            distance_ft=5.5,
+        )
+
+        assert results
+        assert results[0]["estimator"] == "naive"
+        assert results[0]["geom_fit_rmse_deg"] is None
+
     def test_extracts_angle_from_radc_with_ball_speed(self):
         """RADC extraction should find the angle at the OPS-anchored velocity bin."""
         tracker = self._make_tracker()
@@ -1115,5 +1189,9 @@ class TestRADCAngleExtraction:
                 "ops_anchored_peak_min_snr": 2.5,
                 "horizontal_angle_limit_deg": 30.0,
                 "orientation": "vertical",
+                "vertical_estimator": "geometry",
+                "shot_timestamp": None,
+                "mount_deg": 18.0,
+                "distance_ft": 5.5,
             }
         ]

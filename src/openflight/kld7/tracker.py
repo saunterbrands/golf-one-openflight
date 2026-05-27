@@ -90,6 +90,9 @@ class KLD7Tracker:
     radc_horizontal_impact_energy_threshold = 1.85
     radc_horizontal_retry_impact_energy_threshold = 0.5
     radc_horizontal_angle_limit_deg = 15.0
+    vertical_estimator = "geometry"
+    mount_tilt_deg = 18.0
+    ball_distance_ft = 5.5
 
     def __init__(
         self,
@@ -109,6 +112,9 @@ class KLD7Tracker:
         radc_horizontal_impact_energy_threshold: float = 1.85,
         radc_horizontal_retry_impact_energy_threshold: float = 0.5,
         radc_horizontal_angle_limit_deg: float = 15.0,
+        vertical_estimator: str = "geometry",
+        mount_tilt_deg: float = 18.0,
+        ball_distance_ft: float = 5.5,
     ):
         self.port = port
         self.range_m = range_m
@@ -128,6 +134,9 @@ class KLD7Tracker:
             radc_horizontal_retry_impact_energy_threshold
         )
         self.radc_horizontal_angle_limit_deg = radc_horizontal_angle_limit_deg
+        self.vertical_estimator = vertical_estimator
+        self.mount_tilt_deg = mount_tilt_deg
+        self.ball_distance_ft = ball_distance_ft
         self.max_buffer_frames = int(34 * buffer_seconds)
 
         self._radar = None
@@ -474,6 +483,7 @@ class KLD7Tracker:
         self,
         ball_speed_mph: float,
         shot_timestamp: Optional[float] = None,
+        impact_timestamp: Optional[float] = None,
     ) -> Optional[KLD7Angle]:
         """Extract ball launch angle via RADC phase interferometry.
 
@@ -529,6 +539,10 @@ class KLD7Tracker:
                 ops_anchored_peak_min_snr=self.radc_ops_anchored_peak_min_snr,
                 horizontal_angle_limit_deg=self.radc_horizontal_angle_limit_deg,
                 orientation=self.orientation,
+                vertical_estimator=self.vertical_estimator,
+                shot_timestamp=impact_timestamp,
+                mount_deg=self.mount_tilt_deg,
+                distance_ft=self.ball_distance_ft,
             )
             if results:
                 best_attempt = select_best_shot_result(results)
@@ -571,12 +585,15 @@ class KLD7Tracker:
         if relaxed_retry:
             best["confidence"] = min(float(best.get("confidence", 0.0)), 0.45)
         logger.info(
-            "[KLD7] RADC: angle=%.1f° speed=%.1f mph snr=%.1f conf=%.2f frames=%d",
+            "[KLD7] RADC: angle=%.1f° speed=%.1f mph snr=%.1f conf=%.2f frames=%d "
+            "est=%s fit_rmse=%s",
             best["launch_angle_deg"],
             best["ball_speed_mph"],
             best["avg_snr_db"],
             best["confidence"],
             best["frame_count"],
+            best.get("estimator", "naive"),
+            best.get("geom_fit_rmse_deg"),
         )
 
         if self.orientation == "vertical":
@@ -604,12 +621,18 @@ class KLD7Tracker:
         )
 
     def get_angle_for_shot(
-        self, shot_timestamp: Optional[float] = None, ball_speed_mph: Optional[float] = None
+        self,
+        shot_timestamp: Optional[float] = None,
+        ball_speed_mph: Optional[float] = None,
+        impact_timestamp: Optional[float] = None,
     ) -> Optional[KLD7Angle]:
         """Search the ring buffer for the ball launch angle using RADC phase interferometry.
 
         Requires ball_speed_mph from OPS243 to narrow the FFT velocity search.
-        Returns None if RADC extraction fails or ball_speed_mph not provided.
+        ``impact_timestamp`` is the corrected ball-contact instant used by the
+        geometry estimator for per-frame flight time (falls back to naive when
+        it is None). Returns None if RADC extraction fails or ball_speed_mph
+        not provided.
         """
         logger.info(
             "[KLD7] Angle extraction: ball_speed=%s mph, buffer=%d frames",
@@ -622,7 +645,11 @@ class KLD7Tracker:
             return None
 
         try:
-            result = self._extract_ball_radc(ball_speed_mph, shot_timestamp=shot_timestamp)
+            result = self._extract_ball_radc(
+                ball_speed_mph,
+                shot_timestamp=shot_timestamp,
+                impact_timestamp=impact_timestamp,
+            )
             if result is not None:
                 return result
             logger.info(

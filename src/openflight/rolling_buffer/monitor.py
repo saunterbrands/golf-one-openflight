@@ -21,6 +21,16 @@ from .types import ProcessedCapture
 
 logger = logging.getLogger("openflight.rolling_buffer.monitor")
 
+# Reconstruct the true ball-contact instant from a hardware-triggered capture
+# for the K-LD7 geometry launch-angle estimator. The first-byte timestamp lags
+# impact by (a) the fixed trigger->first-byte transport delay and (b) the
+# per-shot in-buffer gap between the trigger and where the ball actually sits.
+# The geometry is ~0.08°/ms sensitive, so it needs this corrected instant
+# rather than the raw first-byte time. Constants validated offline against
+# TrackMan sessions (see tvbin_tracker analysis).
+KLD7_FIRST_BYTE_TRIGGER_DELAY_S = 0.068
+KLD7_IMPACT_EXTRA_OFFSET_S = -0.010
+
 
 def get_optimal_spin_for_ball_speed(ball_speed_mph: float, club: ClubType = ClubType.DRIVER) -> float:
     """
@@ -752,19 +762,23 @@ class RollingBufferMonitor:
         spin_rpm = spin.spin_rpm if has_reportable_spin else None
         spin_confidence = spin.confidence if has_reportable_spin else None
         spin_result_quality = spin.quality if has_reportable_spin else None
+        capture = processed.capture
         impact_timestamp = None
-        if processed.capture is not None:
+        impact_timestamp_kld7: Optional[float] = None
+        if capture is not None:
             impact_timestamp = (
-                processed.capture.trigger_timestamp
-                if processed.capture.trigger_timestamp is not None
-                else processed.capture.first_byte_timestamp
+                capture.trigger_timestamp
+                if capture.trigger_timestamp is not None
+                else capture.first_byte_timestamp
             )
+            impact_timestamp_kld7 = impact_timestamp
 
         # Create shot with extended fields
         shot = Shot(
             ball_speed_mph=processed.ball_speed_mph,
             timestamp=datetime.now(),
             impact_timestamp=impact_timestamp,
+            impact_timestamp_kld7=impact_timestamp_kld7,
             club_speed_mph=processed.club_speed_mph,
             peak_magnitude=None,  # Not directly available in rolling buffer mode
             readings=[],  # Raw readings not stored (use ProcessedCapture instead)
