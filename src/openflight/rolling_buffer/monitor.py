@@ -503,6 +503,47 @@ class RollingBufferMonitor:
                             club_speed_mph=shot.club_speed_mph,
                             ball_timestamp_ms=processed.ball_timestamp_ms,
                             club_timestamp_ms=processed.club_timestamp_ms,
+                            impact_timestamp_ms=processed.impact_timestamp_ms,
+                            impact_source=processed.impact_source,
+                            impact_reason=(
+                                processed.impact.reason if processed.impact else None
+                            ),
+                            impact_speed_delta_mph=(
+                                processed.impact.speed_delta_mph
+                                if processed.impact else None
+                            ),
+                            impact_transition_gap_ms=(
+                                processed.impact.transition_gap_ms
+                                if processed.impact else None
+                            ),
+                            impact_last_club_speed_mph=(
+                                processed.impact.last_club_speed_mph
+                                if processed.impact else None
+                            ),
+                            impact_last_club_timestamp_ms=(
+                                processed.impact.last_club_timestamp_ms
+                                if processed.impact else None
+                            ),
+                            impact_last_club_center_ms=(
+                                processed.impact.last_club_center_ms
+                                if processed.impact else None
+                            ),
+                            impact_first_ball_speed_mph=(
+                                processed.impact.first_ball_speed_mph
+                                if processed.impact else None
+                            ),
+                            impact_first_ball_timestamp_ms=(
+                                processed.impact.first_ball_timestamp_ms
+                                if processed.impact else None
+                            ),
+                            impact_first_ball_center_ms=(
+                                processed.impact.first_ball_center_ms
+                                if processed.impact else None
+                            ),
+                            impact_min_transition_delta_mph=(
+                                processed.impact.min_transition_delta_mph
+                                if processed.impact else None
+                            ),
                             trigger_latency_ms=trigger_latency_ms,
                             first_byte_timestamp=capture.first_byte_timestamp,
                             trigger_timestamp=capture.trigger_timestamp,
@@ -755,15 +796,16 @@ class RollingBufferMonitor:
         impact_timestamp = None
         impact_timestamp_kld7: Optional[float] = None
         if capture is not None:
-            impact_timestamp = (
+            trigger_epoch = (
                 capture.trigger_timestamp
                 if capture.trigger_timestamp is not None
                 else capture.first_byte_timestamp
             )
-            # The sound-trigger timestamp is the trusted ball-contact instant.
-            # OPS ball_timestamp_ms marks where the radar speed return was found
-            # inside the capture; it should not redefine geometry t=0.
-            impact_timestamp_kld7 = impact_timestamp
+            impact_timestamp = trigger_epoch
+
+            impact_timestamp_kld7 = self._impact_epoch_from_processed(processed)
+            if impact_timestamp_kld7 is None:
+                impact_timestamp_kld7 = trigger_epoch
 
         # Create shot with extended fields
         shot = Shot(
@@ -799,6 +841,19 @@ class RollingBufferMonitor:
         )
 
         return shot
+
+    @staticmethod
+    def _impact_epoch_from_processed(processed: ProcessedCapture) -> Optional[float]:
+        """Convert the capture-relative impact estimate into host epoch time."""
+        capture = processed.capture
+        if capture is None or capture.trigger_timestamp is None:
+            return None
+
+        if processed.impact_timestamp_ms is None:
+            return capture.trigger_timestamp
+
+        impact_delta_ms = processed.impact_timestamp_ms - capture.trigger_offset_ms
+        return capture.trigger_timestamp + impact_delta_ms / 1000.0
 
     def _club_spin_rejection_reason(
         self,
