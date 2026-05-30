@@ -180,6 +180,21 @@ class SessionLogger:
         entry.update(kwargs)
         self._write_entry("connection", entry)
 
+    def log_clock_sync(self, device: str, port: str, summary: Dict[str, Any]):
+        """Log an OPS clock-sync block (radar-clock -> host-epoch mapping).
+
+        Instrumentation for KLD7/OPS timing alignment (H1). The ``summary``
+        comes from OPS243Radar.read_clock_sync and carries the per-read offsets
+        plus the best offset/latency, so the radar's internal trigger_time can
+        be converted to a host epoch in offline analysis.
+        """
+        if not self.enabled:
+            return
+        entry = {"device": device, "port": port}
+        if summary:
+            entry.update(summary)
+        self._write_entry("ops_clock_sync", entry)
+
     def _setup_raw_logging(self):
         """Configure Python logging for raw radar data."""
         # Remove existing handlers
