@@ -12,6 +12,15 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
+from .geometry import (
+    GEOM_FLIGHT_T_MAX_S,
+    GEOM_PAIR_SINGLE_FRAME_FALLBACK_RMSE_DEG,
+    GEOM_SINGLE_FRAME_CONFIDENCE_MAX,
+    GEOM_SINGLE_FRAME_MAX_BEARING_RESID_DEG,
+    fit_launch_angle_geometric,
+    fit_launch_angle_single_frame_geometric,
+)
+
 logger = logging.getLogger(__name__)
 
 RADC_PAYLOAD_BYTES = 3072
@@ -743,7 +752,9 @@ def _is_vertical_early_context_candidate(candidate: _VerticalFrameCandidate) -> 
     """Return true when a 5-20ms frame can support a primary-window anchor."""
     if candidate.t_after_impact_s is None:
         return False
-    if not (VERTICAL_RULE_EARLY_TIME_MIN_S <= candidate.t_after_impact_s < VERTICAL_RULE_TIME_MIN_S):
+    if not (
+        VERTICAL_RULE_EARLY_TIME_MIN_S <= candidate.t_after_impact_s < VERTICAL_RULE_TIME_MIN_S
+    ):
         return False
     if candidate.bin_error is not None and candidate.bin_error > VERTICAL_RULE_MAX_BIN_ERROR:
         return False
@@ -1262,137 +1273,6 @@ def find_impact_frames(
         if e > energy_threshold * median_energy:
             impact_indices.append(i)
     return impact_indices
-
-
-# --- Geometric vertical launch-angle fit -------------------------------------
-# The radar measures BEARING (angle of arrival to the ball's *current* position),
-# not the launch angle. Early in flight the ball is low and close to the radar,
-# so the bearing is much shallower than the velocity direction — treating the
-# bearing as the launch angle reads ~7° low AND with the wrong slope (a fixed
-# offset can't fix it; the gap grows ~0.4° per 1° of launch). Instead we invert
-# the trajectory geometry: given per-frame (flight_time, bearing) plus the setup
-# (ball speed, mount tilt, ball-to-radar distance, ball-below-radar offset), grid
-# search the launch angle whose predicted bearing trajectory best fits the
-# measured bearings. Validated to ~2.3° MAE / near-zero bias on confirmed-geometry
-# sessions; range D is a weak lever (±1 ft ≈ 0.2° MAE), so a fixed D is shippable.
-MPH_TO_FTS = 1.46667
-GEOM_BALL_ABOVE_RADAR_FT = -4.0 / 12.0  # ball sits ~4" below the radar center
-GEOM_FLIGHT_T_MAX_S = 0.150  # ignore frames beyond plausible in-net flight time
-GEOM_ALPHA_MIN_DEG = 0.0
-GEOM_ALPHA_MAX_DEG = 45.0
-GEOM_ALPHA_STEP_DEG = 0.1
-GEOM_PAIR_SINGLE_FRAME_FALLBACK_RMSE_DEG = 4.0
-GEOM_SINGLE_FRAME_MAX_BEARING_RESID_DEG = 1.0
-GEOM_SINGLE_FRAME_CONFIDENCE_MAX = 0.72
-
-
-def predicted_bearing_deg(
-    alpha_deg: float,
-    flight_time_s: float,
-    ball_speed_mph: float,
-    distance_ft: float,
-    mount_deg: float,
-    ball_above_radar_ft: float = GEOM_BALL_ABOVE_RADAR_FT,
-) -> float:
-    """Bearing the radar should measure for a ball launched at ``alpha_deg``.
-
-    Models the ball as a point launched at the tee (``distance_ft`` downrange,
-    ``ball_above_radar_ft`` vertically relative to the radar center) flying in a
-    straight line at ``ball_speed_mph``; gravity is negligible over the <150 ms
-    the ball is in view. Returns the angle of arrival to the ball's current
-    position in the radar's frame (mount tilt subtracted).
-    """
-    v_fts = ball_speed_mph * MPH_TO_FTS
-    a = math.radians(alpha_deg)
-    x = distance_ft + v_fts * math.cos(a) * flight_time_s
-    y = ball_above_radar_ft + v_fts * math.sin(a) * flight_time_s
-    return math.degrees(math.atan2(y, x)) - mount_deg
-
-
-def fit_launch_angle_geometric(
-    per_frame: list[tuple[float, float, float]],
-    ball_speed_mph: float,
-    distance_ft: float,
-    mount_deg: float,
-    ball_above_radar_ft: float = GEOM_BALL_ABOVE_RADAR_FT,
-) -> tuple[float, float, int] | None:
-    """Fit vertical launch angle from per-frame ``(flight_time_s, bearing_deg, weight)``.
-
-    Grid-searches the launch angle whose predicted bearing trajectory minimizes
-    the weight-scaled squared bearing residual. Only frames inside the plausible
-    in-flight window (0 < t <= ``GEOM_FLIGHT_T_MAX_S``) are used. Returns
-    ``(alpha_deg, rmse_deg, n_used)`` or ``None`` if fewer than 2 such frames
-    are available (the geometry is underdetermined with a single bearing).
-    """
-    pts = [
-        (t, b, max(float(w), 0.0))
-        for (t, b, w) in per_frame
-        if t is not None and 0.0 < t <= GEOM_FLIGHT_T_MAX_S
-    ]
-    wsum = sum(w for _, _, w in pts)
-    if len(pts) < 2 or wsum <= 0.0:
-        return None
-
-    best_alpha = GEOM_ALPHA_MIN_DEG
-    best_ss = math.inf
-    steps = int(round((GEOM_ALPHA_MAX_DEG - GEOM_ALPHA_MIN_DEG) / GEOM_ALPHA_STEP_DEG))
-    for i in range(steps + 1):
-        alpha = GEOM_ALPHA_MIN_DEG + i * GEOM_ALPHA_STEP_DEG
-        ss = 0.0
-        for t, b, w in pts:
-            resid = b - predicted_bearing_deg(
-                alpha, t, ball_speed_mph, distance_ft, mount_deg, ball_above_radar_ft
-            )
-            ss += w * resid * resid
-        if ss < best_ss:
-            best_ss = ss
-            best_alpha = alpha
-
-    rmse = math.sqrt(best_ss / wsum)
-    return float(best_alpha), float(rmse), len(pts)
-
-
-def fit_launch_angle_single_frame_geometric(
-    frame: tuple[float, float, float],
-    ball_speed_mph: float,
-    distance_ft: float,
-    mount_deg: float,
-    ball_above_radar_ft: float = GEOM_BALL_ABOVE_RADAR_FT,
-) -> tuple[float, float] | None:
-    """Estimate launch angle from one in-flight bearing.
-
-    This is less reliable than the multi-frame trajectory fit because timing
-    and bearing noise cannot be averaged out. Use it only as a low-confidence
-    fallback after the frame has already passed OPS-bin/SNR rule-stack gates.
-    Returns ``(alpha_deg, bearing_residual_deg)``.
-    """
-    t, bearing_deg, weight = frame
-    if t is None or not (0.0 < t <= GEOM_FLIGHT_T_MAX_S) or weight <= 0.0:
-        return None
-
-    best_alpha = GEOM_ALPHA_MIN_DEG
-    best_resid = math.inf
-    steps = int(round((GEOM_ALPHA_MAX_DEG - GEOM_ALPHA_MIN_DEG) / GEOM_ALPHA_STEP_DEG))
-    for i in range(steps + 1):
-        alpha = GEOM_ALPHA_MIN_DEG + i * GEOM_ALPHA_STEP_DEG
-        resid = abs(
-            bearing_deg
-            - predicted_bearing_deg(
-                alpha,
-                t,
-                ball_speed_mph,
-                distance_ft,
-                mount_deg,
-                ball_above_radar_ft,
-            )
-        )
-        if resid < best_resid:
-            best_resid = resid
-            best_alpha = alpha
-
-    if best_resid > GEOM_SINGLE_FRAME_MAX_BEARING_RESID_DEG:
-        return None
-    return float(best_alpha), float(best_resid)
 
 
 def extract_launch_angle(
@@ -2091,9 +1971,7 @@ def extract_launch_angle(
         if orientation == "vertical":
             if estimator_used == "geometry":
                 selection_path = (
-                    "geometry_early_assisted"
-                    if selected_has_early_context
-                    else "geometry_primary"
+                    "geometry_early_assisted" if selected_has_early_context else "geometry_primary"
                 )
             elif estimator_used == "geometry_single_frame":
                 selection_path = "geometry_single_frame"
@@ -2148,8 +2026,7 @@ def extract_launch_angle(
             confidence = min(confidence, VERTICAL_LEGACY_NAIVE_CONFIDENCE_MAX)
 
         selected_t_ms = [
-            None if math.isnan(float(t)) else round(float(t) * 1000.0, 1)
-            for t in clean_t_after
+            None if math.isnan(float(t)) else round(float(t) * 1000.0, 1) for t in clean_t_after
         ]
         selected_bin_errors = [
             None if math.isnan(float(bin_error)) else int(round(float(bin_error)))

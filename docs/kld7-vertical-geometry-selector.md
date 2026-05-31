@@ -27,7 +27,9 @@ fallback.
 ## Required Inputs
 
 The geometry selector runs through `extract_launch_angle(...)` in
-`src/openflight/kld7/radc.py`.
+`src/openflight/kld7/radc.py`. The pure trajectory math lives in
+`src/openflight/kld7/geometry.py` so RADC parsing and geometry fitting stay
+separate.
 
 Required for geometry mode:
 

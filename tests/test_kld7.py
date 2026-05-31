@@ -847,7 +847,8 @@ class TestRADCAngleExtraction:
         Builds two in-flight frames whose bearings are exactly what a known
         launch angle would produce at their flight times, then asserts the
         geometry recovers that angle and tags the result as geometry."""
-        from openflight.kld7.radc import extract_launch_angle, predicted_bearing_deg
+        from openflight.kld7.geometry import predicted_bearing_deg
+        from openflight.kld7.radc import extract_launch_angle
 
         ball_speed_mph = 72.0
         ball_kmh = ball_speed_mph * 1.609
@@ -890,7 +891,8 @@ class TestRADCAngleExtraction:
 
     def test_geometry_estimator_applies_angle_offset_to_frame_bearings(self):
         """Geometry mode should use the configured bearing offset before fitting."""
-        from openflight.kld7.radc import extract_launch_angle, predicted_bearing_deg
+        from openflight.kld7.geometry import predicted_bearing_deg
+        from openflight.kld7.radc import extract_launch_angle
 
         ball_speed_mph = 72.0
         ball_kmh = ball_speed_mph * 1.609
@@ -929,7 +931,8 @@ class TestRADCAngleExtraction:
 
     def test_geometry_estimator_can_pair_anchor_with_next_rising_frame(self):
         """A strong first in-flight frame should still pair with the next rising frame."""
-        from openflight.kld7.radc import extract_launch_angle, predicted_bearing_deg
+        from openflight.kld7.geometry import predicted_bearing_deg
+        from openflight.kld7.radc import extract_launch_angle
 
         ball_speed_mph = 72.0
         ball_kmh = ball_speed_mph * 1.609
@@ -967,7 +970,8 @@ class TestRADCAngleExtraction:
 
     def test_geometry_estimator_uses_low_confidence_single_frame_fallback(self):
         """One strong OPS-bin frame can still produce a bounded geometry fallback."""
-        from openflight.kld7.radc import extract_launch_angle, predicted_bearing_deg
+        from openflight.kld7.geometry import predicted_bearing_deg
+        from openflight.kld7.radc import extract_launch_angle
 
         ball_speed_mph = 72.0
         ball_kmh = ball_speed_mph * 1.609
@@ -1132,9 +1136,7 @@ class TestRADCAngleExtraction:
             peak_width_bins=5,
         )
 
-        selected = _select_vertical_candidates_with_rules(
-            [early_previous, anchor, primary_next]
-        )
+        selected = _select_vertical_candidates_with_rules([early_previous, anchor, primary_next])
 
         assert [frame.frame_index for frame in selected] == [10, 11]
 

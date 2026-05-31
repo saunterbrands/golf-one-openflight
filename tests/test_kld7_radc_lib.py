@@ -924,16 +924,25 @@ class TestOpsBinSoftAnchor:
             self._noise_frame(ts=impact_t - 0.22, seed=301),
             self._noise_frame(ts=impact_t - 0.10, seed=302),
             self._make_frame_at_bin(
-                peak_bin=ops_bin + 18, angle_deg=-12.0,
-                amplitude=6800.0, seed=303, ts=impact_t + 0.023,
+                peak_bin=ops_bin + 18,
+                angle_deg=-12.0,
+                amplitude=6800.0,
+                seed=303,
+                ts=impact_t + 0.023,
             ),
             self._make_frame_at_bin(
-                peak_bin=ops_bin, angle_deg=-8.0,
-                amplitude=9800.0, seed=304, ts=impact_t + 0.057,
+                peak_bin=ops_bin,
+                angle_deg=-8.0,
+                amplitude=9800.0,
+                seed=304,
+                ts=impact_t + 0.057,
             ),
             self._make_frame_at_bin(
-                peak_bin=ops_bin, angle_deg=-6.0,
-                amplitude=8600.0, seed=305, ts=impact_t + 0.091,
+                peak_bin=ops_bin,
+                angle_deg=-6.0,
+                amplitude=8600.0,
+                seed=305,
+                ts=impact_t + 0.091,
             ),
             self._noise_frame(ts=impact_t + 0.16, seed=306),
         ]
@@ -963,7 +972,7 @@ class TestOpsBinSoftAnchor:
         plausible bin/SNR and an inconsistent bearing. The pair should be
         categorized as a capped-confidence single-frame geometry result.
         """
-        from openflight.kld7.radc import predicted_bearing_deg
+        from openflight.kld7.geometry import predicted_bearing_deg
 
         ops_speed_mph = 108.0
         ops_bin = expected_ball_bin_from_speed(ops_speed_mph)

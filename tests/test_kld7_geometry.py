@@ -1,8 +1,8 @@
-"""Tests for the geometric vertical launch-angle fit (radc.fit_launch_angle_geometric)."""
+"""Tests for the geometric vertical launch-angle fit."""
 
 import math
 
-from openflight.kld7.radc import (
+from openflight.kld7.geometry import (
     GEOM_BALL_ABOVE_RADAR_FT,
     fit_launch_angle_geometric,
     predicted_bearing_deg,
