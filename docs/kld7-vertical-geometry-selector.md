@@ -302,3 +302,18 @@ error.
 - Incorrect radar distance, mount tilt, or height assumptions bias the geometry.
 - Ground multipath can bias the measured bearing before the selector sees it.
 
+## Follow-Up TODOs
+
+- Revisit single-frame anchor choice when no clean rising pair exists. The
+  current anchor ranking prefers smallest OPS-bin error before SNR/coherence.
+  TrackMan review of the 2026-05-30 7-iron session showed cases where that can
+  select a later, lower-SNR frame over an earlier strong in-flight frame with
+  comparable bin error. Candidate rule: when no adjacent rising pair survives,
+  prefer an earlier strong frame if it is before the screen-time boundary, has a
+  comparable bin error, and has materially better SNR/coherence.
+- Tighten early-assisted pair acceptance. Shot review showed cases where an
+  early frame alone matched TrackMan, but pairing it with the next frame pushed
+  launch high even though RMSE stayed below the high-RMSE fallback threshold.
+  Candidate rule: if the paired result diverges sharply from the strongest
+  single-frame candidate or requires a large bearing jump, fall back to the
+  strongest/earliest single frame and mark it as `geometry_single_frame`.
