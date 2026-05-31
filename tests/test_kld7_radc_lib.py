@@ -955,6 +955,76 @@ class TestOpsBinSoftAnchor:
             "expected rule-stack logs to include the winning pair"
         )
 
+    def test_high_rmse_geometry_pair_falls_back_to_earliest_single_frame(self):
+        """A noisy second bearing should not keep a high-RMSE two-frame fit.
+
+        This mirrors the indoor-screen failure mode where an early OPS-bin
+        frame is a clean ball return, but the adjacent later frame has a
+        plausible bin/SNR and an inconsistent bearing. The pair should be
+        categorized as a capped-confidence single-frame geometry result.
+        """
+        from openflight.kld7.radc import predicted_bearing_deg
+
+        ops_speed_mph = 108.0
+        ops_bin = expected_ball_bin_from_speed(ops_speed_mph)
+        impact_t = 1000.0
+        distance_ft = 5.0
+        mount_deg = 10.0
+        clean_launch_deg = 20.0
+        clean_t = 0.028
+        contaminated_t = 0.064
+
+        clean_bearing = predicted_bearing_deg(
+            clean_launch_deg,
+            clean_t,
+            ops_speed_mph,
+            distance_ft,
+            mount_deg,
+        )
+
+        frames = [
+            self._noise_frame(ts=impact_t - 0.20, seed=401),
+            self._noise_frame(ts=impact_t - 0.10, seed=402),
+            self._make_frame_at_bin(
+                peak_bin=ops_bin,
+                angle_deg=clean_bearing,
+                amplitude=8000.0,
+                seed=403,
+                ts=impact_t + clean_t,
+            ),
+            self._make_frame_at_bin(
+                peak_bin=ops_bin,
+                angle_deg=16.0,
+                amplitude=14000.0,
+                seed=404,
+                ts=impact_t + contaminated_t,
+            ),
+            self._noise_frame(ts=impact_t + 0.16, seed=405),
+        ]
+
+        results = extract_launch_angle(
+            frames=frames,
+            ops243_ball_speed_mph=ops_speed_mph,
+            speed_tolerance_mph=10.0,
+            impact_energy_threshold=0.5,
+            orientation="vertical",
+            vertical_estimator="geometry",
+            impact_timestamp=impact_t,
+            mount_deg=mount_deg,
+            distance_ft=distance_ft,
+        )
+
+        assert results
+        best = results[0]
+        assert best["estimator"] == "geometry_single_frame"
+        assert best["selection_path"] == "geometry_single_frame"
+        assert best["frame_count"] == 1
+        assert best["selected_frame_indices"] == [2]
+        assert best["geom_fit_rmse_deg"] is None
+        assert best["geom_single_frame_resid_deg"] is not None
+        assert best["confidence"] <= 0.72
+        assert best["launch_angle_deg"] == pytest.approx(clean_launch_deg, abs=1.0)
+
 
 class TestMultiBinCentroidAngle:
     """Tests for the magnitude²-weighted centroid angle aggregation

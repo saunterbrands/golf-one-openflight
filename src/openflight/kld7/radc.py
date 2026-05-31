@@ -1281,6 +1281,7 @@ GEOM_FLIGHT_T_MAX_S = 0.150  # ignore frames beyond plausible in-net flight time
 GEOM_ALPHA_MIN_DEG = 0.0
 GEOM_ALPHA_MAX_DEG = 45.0
 GEOM_ALPHA_STEP_DEG = 0.1
+GEOM_PAIR_SINGLE_FRAME_FALLBACK_RMSE_DEG = 4.0
 GEOM_SINGLE_FRAME_MAX_BEARING_RESID_DEG = 1.0
 GEOM_SINGLE_FRAME_CONFIDENCE_MAX = 0.72
 
@@ -1947,6 +1948,29 @@ def extract_launch_angle(
                 for i in range(len(clean_angs))
                 if not math.isnan(clean_times[i]) and not bool(clean_weak_ops_anchor[i])
             ]
+            strong_single_frame_indices = [
+                i
+                for i in range(len(clean_angs))
+                if not math.isnan(clean_times[i])
+                and not bool(clean_weak_ops_anchor[i])
+                and 0.0 < float(clean_times[i]) <= GEOM_FLIGHT_T_MAX_S
+            ]
+            single_frame_fallback_idx = (
+                min(
+                    strong_single_frame_indices,
+                    key=lambda i: (
+                        float(clean_times[i]),
+                        (
+                            math.inf
+                            if math.isnan(float(clean_bin_errors[i]))
+                            else float(clean_bin_errors[i])
+                        ),
+                        -float(clean_snrs[i]),
+                    ),
+                )
+                if strong_single_frame_indices
+                else None
+            )
             geom = fit_launch_angle_geometric(
                 per_frame_geom, ops243_ball_speed_mph, distance_ft, mount_deg
             )
@@ -1954,12 +1978,24 @@ def extract_launch_angle(
             if geom is not None:
                 geom_angle, geom_fit_rmse, _ = geom
                 weak_adjacent_used = bool(np.any(clean_weak_ops_anchor))
+                rmse_limit: float | None = None
+                rmse_reason: str | None = None
                 if weak_adjacent_used and geom_fit_rmse > GEOM_WEAK_PAIR_MAX_RMSE_DEG:
+                    rmse_limit = GEOM_WEAK_PAIR_MAX_RMSE_DEG
+                    rmse_reason = "weak-adjacent"
+                elif (
+                    len(strong_single_frame_indices) >= 2
+                    and geom_fit_rmse > GEOM_PAIR_SINGLE_FRAME_FALLBACK_RMSE_DEG
+                ):
+                    rmse_limit = GEOM_PAIR_SINGLE_FRAME_FALLBACK_RMSE_DEG
+                    rmse_reason = "high-rmse-pair"
+
+                if rmse_reason is not None and rmse_limit is not None:
                     logger.info(
-                        "[RADC] Geometry weak-adjacent fit rejected: "
-                        "RMSE %.2f° > %.2f°",
+                        "[RADC] Geometry %s fit rejected: RMSE %.2f° > %.2f°",
+                        rmse_reason,
                         geom_fit_rmse,
-                        GEOM_WEAK_PAIR_MAX_RMSE_DEG,
+                        rmse_limit,
                     )
                     geom_fit_rmse = None
                     try_single_frame_geom = True
@@ -1970,30 +2006,48 @@ def extract_launch_angle(
             if estimator_used != "geometry" and try_single_frame_geom:
                 single_geom = (
                     fit_launch_angle_single_frame_geometric(
-                        strong_per_frame_geom[0],
+                        (
+                            float(clean_times[single_frame_fallback_idx]),
+                            float(clean_angs[single_frame_fallback_idx] + angle_offset_deg),
+                            float(w[single_frame_fallback_idx]),
+                        ),
                         ops243_ball_speed_mph,
                         distance_ft,
                         mount_deg,
                     )
-                    if len(strong_per_frame_geom) == 1
+                    if single_frame_fallback_idx is not None
                     else None
                 )
                 if single_geom is not None:
+                    selected_single = np.array([single_frame_fallback_idx], dtype=int)
                     corrected_angle, geom_single_frame_resid = single_geom
                     estimator_used = "geometry_single_frame"
+                    clean_angs = clean_angs[selected_single]
+                    clean_snrs = clean_snrs[selected_single]
+                    clean_bins = clean_bins[selected_single]
+                    clean_times = clean_times[selected_single]
+                    clean_weak_ops_anchor = clean_weak_ops_anchor[selected_single]
+                    clean_frame_indices = clean_frame_indices[selected_single]
+                    clean_t_after = clean_t_after[selected_single]
+                    clean_bin_errors = clean_bin_errors[selected_single]
+                    w = w[selected_single]
+                    total_w = float(np.sum(w))
+                    weighted_angle = float(np.sum(clean_angs * w) / total_w)
                     logger.info(
                         "[RADC] Geometry single-frame fallback: angle=%.1f° "
-                        "resid=%.2f° t_ms=%.1f bearing=%.1f°",
+                        "resid=%.2f° frame=%d t_ms=%.1f bearing=%.1f°",
                         corrected_angle,
                         geom_single_frame_resid,
-                        strong_per_frame_geom[0][0] * 1000.0,
-                        strong_per_frame_geom[0][1],
+                        int(clean_frame_indices[0]),
+                        float(clean_times[0]) * 1000.0,
+                        float(clean_angs[0] + angle_offset_deg),
                     )
                 else:
                     logger.info(
                         "[RADC] Geometry single-frame fallback unavailable "
-                        "(strong_frames=%d)",
+                        "(strong_frames=%d, in_flight_strong_frames=%d)",
                         len(strong_per_frame_geom),
+                        len(strong_single_frame_indices),
                     )
 
             if estimator_used == "naive":
