@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..serial_latency import log_usb_serial_latency_timer
+from ..session_logger import log_session_error
 from .radc import RADC_PAYLOAD_BYTES
 from .types import KLD7Angle, KLD7Frame
 
@@ -40,11 +41,7 @@ _RADC_SELECTION_DIAGNOSTIC_KEYS = (
 
 def _radc_selection_diagnostics(best: dict, *, relaxed_retry: bool) -> dict:
     """Return compact, JSON-safe RADC selection details for session replay."""
-    diagnostics = {
-        key: best.get(key)
-        for key in _RADC_SELECTION_DIAGNOSTIC_KEYS
-        if key in best
-    }
+    diagnostics = {key: best.get(key) for key in _RADC_SELECTION_DIAGNOSTIC_KEYS if key in best}
     diagnostics["relaxed_retry"] = relaxed_retry
     return diagnostics
 
@@ -489,6 +486,15 @@ class KLD7Tracker:
                     e,
                     exc_info=True,
                 )
+                log_session_error(
+                    "K-LD7 stream crashed",
+                    component="kld7_tracker",
+                    context={
+                        "orientation": self.orientation,
+                        "frame_count": frame_count,
+                    },
+                    exc=e,
+                )
                 break
 
         if errors >= max_errors:
@@ -497,6 +503,15 @@ class KLD7Tracker:
                 max_errors,
                 reconnects,
                 self.orientation,
+            )
+            log_session_error(
+                "K-LD7 stream gave up after repeated errors",
+                component="kld7_tracker",
+                context={
+                    "orientation": self.orientation,
+                    "max_errors": max_errors,
+                    "reconnects": reconnects,
+                },
             )
 
     def _add_frame(self, frame: KLD7Frame):
@@ -744,6 +759,15 @@ class KLD7Tracker:
             )
         except Exception as e:
             logger.warning("[KLD7] RADC extraction failed: %s", e, exc_info=True)
+            log_session_error(
+                "K-LD7 ball angle RADC extraction failed",
+                component="kld7_tracker",
+                context={
+                    "orientation": self.orientation,
+                    "ball_speed_mph": ball_speed_mph,
+                },
+                exc=e,
+            )
 
         return None
 
@@ -774,6 +798,15 @@ class KLD7Tracker:
                 return result
         except Exception as e:
             logger.debug("[KLD7] Club angle extraction failed: %s", e)
+            log_session_error(
+                "K-LD7 club angle RADC extraction failed",
+                component="kld7_tracker",
+                context={
+                    "orientation": self.orientation,
+                    "club_speed_mph": club_speed_mph,
+                },
+                exc=e,
+            )
 
         return None
 
