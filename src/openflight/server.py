@@ -23,7 +23,7 @@ from flask_socketio import SocketIO
 from .launch_monitor import ClubType, Shot
 from .ops243 import Direction, SpeedReading, set_show_raw_readings
 from .rolling_buffer.monitor import estimate_carry_with_spin, get_optimal_spin_for_ball_speed
-from .session_logger import get_session_logger, init_session_logger
+from .session_logger import get_session_logger, init_session_logger, log_session_error
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -992,6 +992,12 @@ def init_kld7(
             return False
     except Exception as e:
         logger.warning("[SERVER] K-LD7 %s initialization failed: %s", orientation, e, exc_info=True)
+        log_session_error(
+            "K-LD7 initialization failed",
+            component="kld7",
+            context={"orientation": orientation},
+            exc=e,
+        )
         return False
 
 
@@ -1398,6 +1404,11 @@ def handle_set_radar_config(data):
     global radar_config  # pylint: disable=global-statement
 
     if not monitor or mock_mode:
+        log_session_error(
+            "Radar config update rejected: radar not connected",
+            component="server",
+            context={"stage": "set_radar_config", "mock_mode": mock_mode},
+        )
         socketio.emit("radar_config_error", {"error": "Radar not connected"})
         return
 
@@ -1449,7 +1460,13 @@ def handle_set_radar_config(data):
         socketio.emit("radar_config", radar_config)
 
     except Exception as e:
-        print(f"Error setting radar config: {e}")
+        logger.warning("[SERVER] Error setting radar config: %s", e, exc_info=True)
+        log_session_error(
+            "Radar config update failed",
+            component="server",
+            context={"stage": "set_radar_config", "requested": data},
+            exc=e,
+        )
         socketio.emit("radar_config_error", {"error": str(e)})
 
 
@@ -1687,6 +1704,16 @@ def on_shot_detected(shot: Shot):
                 logger.info("[SERVER] K-LD7 processing: %.1fms", kld7_ms)
     except Exception as e:
         logger.warning("[SERVER] K-LD7 processing error: %s", e, exc_info=True)
+        log_session_error(
+            "K-LD7 shot processing failed",
+            component="server",
+            context={
+                "stage": "kld7",
+                "ball_speed_mph": shot.ball_speed_mph,
+                "club": shot.club.value,
+            },
+            exc=e,
+        )
 
     # Try to get launch angle from camera BEFORE emitting shot
     # Skip camera for mock shots — they already have simulated launch angle
@@ -1731,6 +1758,12 @@ def on_shot_detected(shot: Shot):
             ball_detection_confidence = 0.0
     except Exception as e:
         logger.warning("[SERVER] Camera processing error: %s", e, exc_info=True)
+        log_session_error(
+            "Camera shot processing failed",
+            component="server",
+            context={"stage": "camera", "ball_speed_mph": shot.ball_speed_mph},
+            exc=e,
+        )
         camera_data = None
 
     # Always emit user-facing launch angles. Radar/camera measurements win;
@@ -1820,6 +1853,12 @@ def on_shot_detected(shot: Shot):
             )
     except Exception as e:
         logger.warning("[SERVER] Failed to log shot: %s", e, exc_info=True)
+        log_session_error(
+            "Session shot logging failed",
+            component="server",
+            context={"stage": "session_log_shot", "ball_speed_mph": shot.ball_speed_mph},
+            exc=e,
+        )
 
     # Emit shot with launch angle data included
     try:
@@ -1839,6 +1878,12 @@ def on_shot_detected(shot: Shot):
         )
     except Exception as e:
         logger.error("[SERVER] Failed to emit shot: %s", e, exc_info=True)
+        log_session_error(
+            "WebSocket shot emit failed",
+            component="server",
+            context={"stage": "emit_shot", "ball_speed_mph": shot.ball_speed_mph},
+            exc=e,
+        )
         return
 
     # Debug logging (optional)
