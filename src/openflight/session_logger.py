@@ -324,6 +324,7 @@ class SessionLogger:
         spin_axis_deg: Optional[float] = None,
         pipeline_ms: Optional[Dict] = None,
         impact_timestamp: Optional[float] = None,
+        kld7_timing_debug: Optional[Dict] = None,
     ):
         """
         Log a detected shot with all metrics.
@@ -413,6 +414,8 @@ class SessionLogger:
             data["spin_axis_deg"] = spin_axis_deg
         if pipeline_ms is not None:
             data["pipeline_ms"] = pipeline_ms
+        if kld7_timing_debug is not None:
+            data["kld7_timing_debug"] = kld7_timing_debug
 
         self._write_entry("shot_detected", data)
 
@@ -450,6 +453,7 @@ class SessionLogger:
         ball_angle: Optional[Dict] = None,
         club_angle: Optional[Dict] = None,
         raw_payload_expected: Optional[bool] = None,
+        timing_debug: Optional[Dict] = None,
     ):
         """Log raw K-LD7 ring buffer alongside OPS243 shot for correlation analysis."""
         if not self.enabled:
@@ -492,6 +496,7 @@ class SessionLogger:
                 "frames": buffer_frames,
                 "ball_angle": ball_angle,
                 "club_angle": club_angle,
+                "timing_debug": timing_debug,
             },
         )
 
