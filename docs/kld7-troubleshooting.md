@@ -174,6 +174,27 @@ If `--kld7` or `--kld7-horizontal` is passed but the radar fails to connect afte
 
 ## RADC Streaming Issues
 
+### Measuring real K-LD7 RADC cadence
+
+Use the guarded timing probe when launch-angle extraction is missing frames or
+when one K-LD7 orientation appears slower than the other:
+
+```bash
+uv run python scripts/hardware-test/probe_kld7_timing.py \
+  --port /dev/kld7_vertical \
+  --duration 10 \
+  --frame-mask RADC,DONE \
+  --output /tmp/kld7_vertical_timing.jsonl
+```
+
+At the production `RSPI=3` setting, expect roughly 34 RADC frames per second
+with low `done_frame_gaps`. If cadence is much lower or gaps are high,
+investigate USB scheduling, serial read duration, or requested packet volume
+before changing launch-angle selection logic.
+
+Undocumented command probing is available only through `--unsafe-probe` and
+requires `--output`. Do not use it in production sessions.
+
 ### No RADC frames in buffer
 
 **Symptom:** K-LD7 connects but shots show `angle_source: estimated` instead of `radar`.
