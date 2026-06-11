@@ -500,3 +500,36 @@ class TestLogClockSync:
         logger = SessionLogger(log_dir=tmp_path, enabled=False)
         logger.log_clock_sync(device="ops243", port="x", summary=self._summary())
         assert logger.session_path is None
+
+
+class TestSessionIdentity:
+    """session_start must carry a globally unique ID and format version so
+    cloud sync can dedupe sessions by content, not filename."""
+
+    def _start_entry(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+        logger.end_session()
+        session_file = next(tmp_path.glob("session_*.jsonl"))
+        with session_file.open() as handle:
+            first = json.loads(handle.readline())
+        return first
+
+    def test_session_start_has_uuid_and_format_version(self, tmp_path):
+        import uuid
+
+        import openflight
+
+        entry = self._start_entry(tmp_path)
+        assert entry["type"] == "session_start"
+        # Valid UUID4, distinct from the timestamp-based session_id
+        parsed = uuid.UUID(entry["session_uuid"])
+        assert parsed.version == 4
+        assert entry["session_uuid"] != entry["session_id"]
+        assert entry["format_version"] == 1
+        assert entry["app_version"] == openflight.__version__
+
+    def test_session_uuid_is_unique_per_session(self, tmp_path):
+        first = self._start_entry(tmp_path / "a")
+        second = self._start_entry(tmp_path / "b")
+        assert first["session_uuid"] != second["session_uuid"]
