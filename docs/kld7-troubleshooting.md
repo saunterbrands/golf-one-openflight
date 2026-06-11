@@ -158,9 +158,13 @@ Other possibilities:
 
 **Cause:** The K-LD7 uses an FTDI USB-to-serial adapter which shows up as `/dev/ttyUSB*`. If multiple USB-serial devices are connected, auto-detection may pick the wrong one.
 
-**Fix:** Specify the port explicitly or set up udev rules:
+**Fix:** Run the device naming wizard so each radar gets a fixed name, or
+specify the port explicitly:
 ```bash
-# Explicit port
+# Recommended: map the radars to /dev/kld7_vertical / /dev/kld7_horizontal
+./scripts/setup/setup_kld7_devices.sh
+
+# Or: explicit port
 scripts/start-kiosk.sh --kld7 --kld7-port /dev/ttyUSB0
 
 # Find available ports

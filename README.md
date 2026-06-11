@@ -52,7 +52,19 @@ Follow the **[Sound Trigger Wiring Guide](docs/sound-trigger-wiring.md)** to con
 
 ### 3. Set up the Pi
 
-Follow the **[Raspberry Pi Setup Guide](docs/raspberry-pi-setup.md)** for OS installation, software setup, radar configuration, and auto-start.
+Flash Raspberry Pi OS (64-bit), plug in the radars, then run the interactive setup:
+
+```bash
+git clone https://github.com/jewbetcha/openflight.git
+cd openflight
+./scripts/setup/setup.sh
+```
+
+The script installs everything and walks you through the one-time hardware
+configuration (radar flash setup, K-LD7 device naming, auto-start) with
+prompts — no manual config editing needed. It's safe to re-run any time.
+See the **[Raspberry Pi Setup Guide](docs/raspberry-pi-setup.md)** for
+details and troubleshooting.
 
 ### 4. Hit balls
 
