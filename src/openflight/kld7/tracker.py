@@ -457,27 +457,19 @@ class KLD7Tracker:
                     "[KLD7] Stream generator exited (frames=%d, %s)", frame_count, self.orientation
                 )
 
-            except KLD7Exception as e:
-                errors += 1
-                logger.warning(
-                    "[KLD7] Stream error %d/%d (%s): %s", errors, max_errors, self.orientation, e
-                )
-                if errors < max_errors:
-                    self._drain_after_stream_error()
-                    continue
-                reconnects += 1
-                if reconnects > max_reconnects:
-                    break
-                if self._reconnect_after_stream_errors(errors):
-                    errors = 0
-                    continue
-                break
-
             except Exception as e:
-                if _is_recoverable_stream_error(e):
+                # KLD7Exception is always treated as recoverable; other
+                # exceptions only when they match known transient patterns.
+                if isinstance(e, KLD7Exception) or _is_recoverable_stream_error(e):
                     errors += 1
+                    label = (
+                        "Stream error"
+                        if isinstance(e, KLD7Exception)
+                        else "Recoverable stream error"
+                    )
                     logger.warning(
-                        "[KLD7] Recoverable stream error %d/%d (%s): %s",
+                        "[KLD7] %s %d/%d (%s): %s",
+                        label,
                         errors,
                         max_errors,
                         self.orientation,
@@ -560,8 +552,8 @@ class KLD7Tracker:
         if shot_timestamp is None:
             return frames, frames_available, 0
 
-        window_before_s = max(float(getattr(self, "buffer_seconds", 0.0) or 0.0), 0.0)
-        window_after_s = max(float(getattr(self, "shot_window_after_s", 0.0) or 0.0), 0.0)
+        window_before_s = max(float(self.buffer_seconds or 0.0), 0.0)
+        window_after_s = max(float(self.shot_window_after_s or 0.0), 0.0)
         start = shot_timestamp - window_before_s
         end = shot_timestamp + window_after_s
 

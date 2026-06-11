@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 
 import numpy as np
 
@@ -52,6 +53,8 @@ DEFAULT_BALL_ALIASED_MAX_KMH = -7.0
 WAVELENGTH_M = 3e8 / 24.125e9  # ~12.43 mm
 ANTENNA_SPACING_M = 8.0e-3  # ~0.64λ, calibrated against PDAT reference data
 
+MPH_TO_KMH = 1.609
+
 # Vertical rule-stack candidate selection (impact-relative, OPS-anchored).
 # Primary frames are far enough after impact to usually be ball-only. The
 # early context window can support a primary anchor when it is OPS-bin aligned,
@@ -92,15 +95,33 @@ def parse_radc_payload(payload: bytes) -> dict[str, np.ndarray]:
     }
 
 
+def _channels_from_frame(radc_raw):
+    """Return the channel dict for a frame's RADC payload.
+
+    Frames carry either the raw 3072-byte payload (live path) or an
+    already-parsed channel dict (offline replay).
+    """
+    return parse_radc_payload(radc_raw) if isinstance(radc_raw, bytes) else radc_raw
+
+
 def to_complex_iq(i_channel: np.ndarray, q_channel: np.ndarray) -> np.ndarray:
     """Convert uint16 I/Q arrays to complex float, removing DC offset.
 
     Uses per-channel mean removal instead of a fixed midpoint, since the
     K-LD7 ADC bias varies across channels and units.
     """
-    i_float = i_channel.astype(np.float64) - np.mean(i_channel.astype(np.float64))
-    q_float = q_channel.astype(np.float64) - np.mean(q_channel.astype(np.float64))
+    i_float = i_channel.astype(np.float64)
+    i_float -= i_float.mean()
+    q_float = q_channel.astype(np.float64)
+    q_float -= q_float.mean()
     return i_float + 1j * q_float
+
+
+@lru_cache(maxsize=4)
+def _hann_window(n: int) -> np.ndarray:
+    # Cached per length: this runs twice per RADC frame at ~34 Hz, and the
+    # window never changes. Callers must not mutate the returned array.
+    return np.hanning(n)
 
 
 def compute_spectrum(
@@ -116,11 +137,7 @@ def compute_spectrum(
     Returns:
         Magnitude spectrum (linear scale), length = fft_size
     """
-    windowed = iq * np.hanning(len(iq))
-    padded = np.zeros(fft_size, dtype=np.complex128)
-    padded[: len(windowed)] = windowed
-    fft_result = np.fft.fft(padded)
-    magnitude = np.abs(fft_result)
+    magnitude = np.abs(np.fft.fft(iq * _hann_window(len(iq)), n=fft_size))
     # Mask DC leakage at both ends of the spectrum
     if dc_mask_bins > 0:
         magnitude[:dc_mask_bins] = 0.0
@@ -132,10 +149,7 @@ def compute_fft_complex(
     iq: np.ndarray, fft_size: int = 2048, dc_mask_bins: int = DC_MASK_BINS
 ) -> np.ndarray:
     """Compute complex FFT output (not magnitude) for phase-based processing."""
-    windowed = iq * np.hanning(len(iq))
-    padded = np.zeros(fft_size, dtype=np.complex128)
-    padded[: len(windowed)] = windowed
-    result = np.fft.fft(padded)
+    result = np.fft.fft(iq * _hann_window(len(iq)), n=fft_size)
     if dc_mask_bins > 0:
         result[:dc_mask_bins] = 0.0
         result[-dc_mask_bins:] = 0.0
@@ -345,7 +359,7 @@ def aliased_velocity_from_ball_speed_mph(
     max_speed_kmh: float = 100.0,
 ) -> float:
     """Map true ball speed to the K-LD7 aliased Doppler velocity in km/h."""
-    ball_speed_kmh = ball_speed_mph * 1.609
+    ball_speed_kmh = ball_speed_mph * MPH_TO_KMH
     unambiguous_range = max_speed_kmh * 2.0
     aliased_kmh = ball_speed_kmh % unambiguous_range
     if aliased_kmh > max_speed_kmh:
@@ -411,7 +425,7 @@ def ball_bin_range_from_speed(
         tolerance_mph: Search window around the expected velocity (±)
     """
     aliased_kmh = aliased_velocity_from_ball_speed_mph(ball_speed_mph, max_speed_kmh)
-    tol_kmh = tolerance_mph * 1.609
+    tol_kmh = tolerance_mph * MPH_TO_KMH
     lo_vel = aliased_kmh - tol_kmh
     hi_vel = aliased_kmh + tol_kmh
 
@@ -604,9 +618,9 @@ def _find_peak_near_expected_bin(
         if sub_hi <= sub_lo:
             continue
         indices = np.arange(sub_lo, sub_hi, dtype=int)
-        mask = np.array(
-            [circular_bin_distance(idx, expected_bin, fft_size) <= tolerance for idx in indices]
-        )
+        # Vectorized circular_bin_distance over the whole sub-band
+        direct = np.abs(indices - expected_bin)
+        mask = np.minimum(direct, fft_size - direct) <= tolerance
         if not mask.any():
             continue
         near_indices = indices[mask]
@@ -713,8 +727,6 @@ class _VerticalFrameCandidate:
     snr_linear: float
     angle_deg: float
     speed_mph: float
-    raw_angle_deg: float
-    geom_bearing_deg: float
     t_after_impact_s: float | None
     phase_coherence: float | None
     peak_width_bins: int
@@ -1001,7 +1013,7 @@ def radc_frame_diagnostics(
         return empty("missing_radc", has_radc=False, warnings=("missing_radc",))
 
     try:
-        channels = parse_radc_payload(radc_raw) if isinstance(radc_raw, bytes) else radc_raw
+        channels = _channels_from_frame(radc_raw)
     except ValueError:
         return empty("invalid_payload_size", has_radc=True, warnings=("invalid_payload",))
     if not isinstance(channels, dict):
@@ -1100,7 +1112,7 @@ def radc_frame_diagnostics(
         else None
     )
     peak_velocity_kmh = bin_to_velocity_kmh(peak_bin, fft_size, max_speed_kmh)
-    peak_ball_speed_mph = (2.0 * max_speed_kmh + peak_velocity_kmh) / 1.609
+    peak_ball_speed_mph = (2.0 * max_speed_kmh + peak_velocity_kmh) / MPH_TO_KMH
     speed_error_mph = (
         peak_ball_speed_mph - ops243_ball_speed_mph if ops243_ball_speed_mph is not None else None
     )
@@ -1247,7 +1259,7 @@ def find_impact_frames(
             energies.append(0.0)
             continue
         try:
-            channels = parse_radc_payload(radc) if isinstance(radc, bytes) else radc
+            channels = _channels_from_frame(radc)
             iq = to_complex_iq(channels["f1a_i"], channels["f1a_q"])
         except (KeyError, TypeError, ValueError):
             energies.append(0.0)
@@ -1279,7 +1291,6 @@ def extract_launch_angle(
     frames: list[dict],
     fft_size: int = 2048,
     max_speed_kmh: float = 100.0,
-    cfar_threshold: float = 2.5,
     impact_energy_threshold: float = 3.0,
     angle_offset_deg: float = 0.0,
     ops243_ball_speed_mph: float | None = None,
@@ -1303,7 +1314,8 @@ def extract_launch_angle(
     Pipeline:
     1. Find impact frames (high-velocity energy spikes)
     2. Group consecutive impacts into shot events
-    3. For each shot, run band-limited CFAR in the ball velocity range
+    3. For each shot, find the strongest peak in the ball velocity band
+       (median-SNR gated, OPS-anchored when ball speed is available)
     4. Per-bin interferometric angle estimation on ball detections.
        The per-frame angle is the magnitude²-weighted centroid of the
        per-bin angles inside the spectral peak (bins whose magnitude
@@ -1414,9 +1426,7 @@ def extract_launch_angle(
         ball_bands=ball_bands,
     )
     if not impact_indices:
-        import logging
-
-        logging.getLogger("openflight.kld7.radc").info(
+        logger.info(
             "[KLD7-RADC] No impact frames found (energy_threshold=%.1f, ball_bands=%s, %d frames)",
             impact_energy_threshold,
             ball_bands,
@@ -1451,25 +1461,20 @@ def extract_launch_angle(
         peak_snrs = []
         peak_speeds_mph = []
         peak_bins: list[int] = []
-        peak_times: list[float | None] = []  # flight time per frame (s), for geometry
         peak_coherences: list[float | None] = []
         peak_widths: list[int] = []
         peak_ops_anchor_weak: list[bool] = []
         peak_frame_indices: list[int] = []
+        # Time after impact per frame (s) — doubles as the flight time
+        # used by the geometry estimator.
         per_frame_t_after_impact: list[float | None] = []
 
         for fi in sorted(frame_set):
             radc_raw = frames[fi].get("radc")
             if radc_raw is None:
                 continue
-            frame_ts = frames[fi].get("timestamp")
-            flight_time_s = (
-                float(frame_ts) - float(time_ref)
-                if frame_ts is not None and time_ref is not None
-                else None
-            )
             try:
-                channels = parse_radc_payload(radc_raw) if isinstance(radc_raw, bytes) else radc_raw
+                channels = _channels_from_frame(radc_raw)
             except (KeyError, TypeError, ValueError):
                 continue
 
@@ -1539,47 +1544,23 @@ def extract_launch_angle(
 
             # Magnitude²-weighted centroid of the per-bin angles across
             # the spectral peak, rather than the raw angle at a single
-            # bin. Search a small neighborhood (`centroid_search_bins`)
-            # around the peak and include bins whose magnitude is at
-            # least `centroid_floor_frac` of the peak. For a range-
-            # spread target this integrates the angle estimate across
-            # all the energy in the peak; restricting to a neighborhood
-            # prevents random noise bins elsewhere in the band (which
-            # have similar magnitudes when there is no real ball signal)
-            # from contributing. This is the wideband monopulse
-            # formulation (Zhang et al., Sensors 2016).
-            if centroid_floor_frac < 1.0:
-                # Clip the centroid neighborhood to the sub-band that
-                # contains the peak. This prevents the neighborhood
-                # from spilling across the wrap into an unrelated
-                # spectral region when the ball band wraps around DC.
-                # Fall back to FFT bounds if peak_bin sits outside any
-                # listed sub-band (defensive — shouldn't happen).
-                sub_for_peak = next(
-                    (sub for sub in ball_bands if sub[0] <= peak_bin < sub[1]),
-                    (0, fft_size),
-                )
-                sub_lo, sub_hi = sub_for_peak
-                lo_n = max(sub_lo, peak_bin - CENTROID_SEARCH_BINS)
-                hi_n = min(sub_hi, peak_bin + CENTROID_SEARCH_BINS + 1)
-                neigh = spec[lo_n:hi_n]
-                neigh_mask = neigh >= peak_val * centroid_floor_frac
-                if neigh_mask.any():
-                    neigh_indices = np.flatnonzero(neigh_mask) + lo_n
-                    neigh_w = neigh[neigh_mask] ** 2
-                    neigh_w_sum = float(neigh_w.sum())
-                    if neigh_w_sum > 0:
-                        centroid_angle = float(
-                            np.sum(angles[neigh_indices] * neigh_w) / neigh_w_sum
-                        )
-                    else:
-                        centroid_angle = float(angles[peak_bin])
-                else:
-                    centroid_angle = float(angles[peak_bin])
-            else:
-                # Disabled (frac=1.0) — fall back to the legacy
-                # single-peak-bin angle for exact backward compatibility.
-                centroid_angle = float(angles[peak_bin])
+            # bin. For a range-spread target this integrates the angle
+            # estimate across all the energy in the peak; restricting to
+            # a neighborhood prevents random noise bins elsewhere in the
+            # band (which have similar magnitudes when there is no real
+            # ball signal) from contributing. This is the wideband
+            # monopulse formulation (Zhang et al., Sensors 2016).
+            # `peak_band` is the sub-band the peak was found in, so the
+            # neighborhood cannot spill across the DC wrap into an
+            # unrelated spectral region.
+            centroid_angle, peak_width = _centroid_angle_for_peak(
+                angles,
+                spec,
+                peak_bin,
+                peak_val,
+                peak_band,
+                centroid_floor_frac,
+            )
             phase_coherence = _phase_coherence_for_peak(
                 f1a_fft,
                 f2a_fft,
@@ -1589,19 +1570,9 @@ def extract_launch_angle(
                 peak_band,
                 coherence_bins=4,
             )
-            peak_width = int(
-                _centroid_angle_for_peak(
-                    angles,
-                    spec,
-                    peak_bin,
-                    peak_val,
-                    peak_band,
-                    centroid_floor_frac,
-                )[1]
-            )
 
             vel = bin_to_velocity_kmh(peak_bin, fft_size, max_speed_kmh)
-            frame_speed_mph = (200.0 + vel) / 1.609
+            frame_speed_mph = (2.0 * max_speed_kmh + vel) / MPH_TO_KMH
             frame_ts = _optional_float(frames[fi].get("timestamp"))
             t_after_impact: float | None = None
             if frame_ts is not None and time_ref is not None:
@@ -1611,7 +1582,6 @@ def extract_launch_angle(
             peak_snrs.append(snr)
             peak_bins.append(peak_bin)
             peak_speeds_mph.append(frame_speed_mph)
-            peak_times.append(flight_time_s)
             peak_coherences.append(phase_coherence)
             peak_widths.append(peak_width)
             peak_ops_anchor_weak.append(ops_anchor_weak)
@@ -1624,7 +1594,6 @@ def extract_launch_angle(
         angs = np.array(peak_angles)
         snrs = np.array(peak_snrs)
         bins_arr = np.array(peak_bins, dtype=int)
-        times_arr = np.array([np.nan if t is None else t for t in peak_times], dtype=float)
         weak_ops_anchor_arr = np.array(peak_ops_anchor_weak, dtype=bool)
         frame_indices_arr = np.array(peak_frame_indices, dtype=int)
         t_after_arr = np.array(
@@ -1640,8 +1609,6 @@ def extract_launch_angle(
             ],
             dtype=float,
         )
-        raw_angs = angs.copy()
-        geom_arr = np.zeros_like(angs, dtype=float)
         used_rule_stack = False
         if orientation == "vertical" and time_ref is not None:
             candidates: list[_VerticalFrameCandidate] = []
@@ -1659,8 +1626,6 @@ def extract_launch_angle(
                         snr_linear=float(snrs[i]),
                         angle_deg=float(angle),
                         speed_mph=float(peak_speeds_mph[i]),
-                        raw_angle_deg=float(raw_angs[i]),
-                        geom_bearing_deg=float(geom_arr[i]),
                         t_after_impact_s=per_frame_t_after_impact[i],
                         phase_coherence=peak_coherences[i],
                         peak_width_bins=int(peak_widths[i]),
@@ -1677,7 +1642,6 @@ def extract_launch_angle(
                 clean_angs = angs[keep_mask]
                 clean_snrs = snrs[keep_mask]
                 clean_bins = bins_arr[keep_mask]
-                clean_times = times_arr[keep_mask]
                 clean_weak_ops_anchor = weak_ops_anchor_arr[keep_mask]
                 clean_frame_indices = frame_indices_arr[keep_mask]
                 clean_t_after = t_after_arr[keep_mask]
@@ -1710,7 +1674,6 @@ def extract_launch_angle(
                 angs = angs[strong_mask]
                 snrs = snrs[strong_mask]
                 bins_arr = bins_arr[strong_mask]
-                times_arr = times_arr[strong_mask]
                 weak_ops_anchor_arr = weak_ops_anchor_arr[strong_mask]
                 frame_indices_arr = frame_indices_arr[strong_mask]
                 t_after_arr = t_after_arr[strong_mask]
@@ -1725,7 +1688,6 @@ def extract_launch_angle(
                 clean_angs = angs
                 clean_snrs = snrs
                 clean_bins = bins_arr
-                clean_times = times_arr
                 clean_weak_ops_anchor = weak_ops_anchor_arr
                 clean_frame_indices = frame_indices_arr
                 clean_t_after = t_after_arr
@@ -1753,7 +1715,6 @@ def extract_launch_angle(
                 clean_angs = angs[clean_mask]
                 clean_snrs = snrs[clean_mask]
                 clean_bins = bins_arr[clean_mask]
-                clean_times = times_arr[clean_mask]
                 clean_weak_ops_anchor = weak_ops_anchor_arr[clean_mask]
                 clean_frame_indices = frame_indices_arr[clean_mask]
                 clean_t_after = t_after_arr[clean_mask]
@@ -1819,27 +1780,27 @@ def extract_launch_angle(
             and distance_ft is not None
         ):
             per_frame_geom = [
-                (float(clean_times[i]), float(clean_angs[i] + angle_offset_deg), float(w[i]))
+                (float(clean_t_after[i]), float(clean_angs[i] + angle_offset_deg), float(w[i]))
                 for i in range(len(clean_angs))
-                if not math.isnan(clean_times[i])
+                if not math.isnan(clean_t_after[i])
             ]
             strong_per_frame_geom = [
-                (float(clean_times[i]), float(clean_angs[i] + angle_offset_deg), float(w[i]))
+                (float(clean_t_after[i]), float(clean_angs[i] + angle_offset_deg), float(w[i]))
                 for i in range(len(clean_angs))
-                if not math.isnan(clean_times[i]) and not bool(clean_weak_ops_anchor[i])
+                if not math.isnan(clean_t_after[i]) and not bool(clean_weak_ops_anchor[i])
             ]
             strong_single_frame_indices = [
                 i
                 for i in range(len(clean_angs))
-                if not math.isnan(clean_times[i])
+                if not math.isnan(clean_t_after[i])
                 and not bool(clean_weak_ops_anchor[i])
-                and 0.0 < float(clean_times[i]) <= GEOM_FLIGHT_T_MAX_S
+                and 0.0 < float(clean_t_after[i]) <= GEOM_FLIGHT_T_MAX_S
             ]
             single_frame_fallback_idx = (
                 min(
                     strong_single_frame_indices,
                     key=lambda i: (
-                        float(clean_times[i]),
+                        float(clean_t_after[i]),
                         (
                             math.inf
                             if math.isnan(float(clean_bin_errors[i]))
@@ -1887,7 +1848,7 @@ def extract_launch_angle(
                 single_geom = (
                     fit_launch_angle_single_frame_geometric(
                         (
-                            float(clean_times[single_frame_fallback_idx]),
+                            float(clean_t_after[single_frame_fallback_idx]),
                             float(clean_angs[single_frame_fallback_idx] + angle_offset_deg),
                             float(w[single_frame_fallback_idx]),
                         ),
@@ -1905,7 +1866,6 @@ def extract_launch_angle(
                     clean_angs = clean_angs[selected_single]
                     clean_snrs = clean_snrs[selected_single]
                     clean_bins = clean_bins[selected_single]
-                    clean_times = clean_times[selected_single]
                     clean_weak_ops_anchor = clean_weak_ops_anchor[selected_single]
                     clean_frame_indices = clean_frame_indices[selected_single]
                     clean_t_after = clean_t_after[selected_single]
@@ -1919,7 +1879,7 @@ def extract_launch_angle(
                         corrected_angle,
                         geom_single_frame_resid,
                         int(clean_frame_indices[0]),
-                        float(clean_times[0]) * 1000.0,
+                        float(clean_t_after[0]) * 1000.0,
                         float(clean_angs[0] + angle_offset_deg),
                     )
                 else:
@@ -1934,7 +1894,7 @@ def extract_launch_angle(
                 logger.info(
                     "[RADC] Geometry estimator: <2 in-flight frames "
                     "(flight times ms=%s); falling back to naive bearing average",
-                    [None if math.isnan(t) else round(float(t) * 1000.0, 1) for t in clean_times],
+                    [None if math.isnan(t) else round(float(t) * 1000.0, 1) for t in clean_t_after],
                 )
 
         # Hard physical bounds — reject obvious outliers before they
