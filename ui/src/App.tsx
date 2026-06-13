@@ -6,6 +6,8 @@ import { ShotList } from './components/ShotList';
 import { DebugPanel } from './components/DebugPanel';
 import { CameraFeed } from './components/CameraFeed';
 import { ConnectionStatus } from './components/ConnectionStatus';
+import { SimStatus } from './components/SimStatus';
+import { SimShotBadges } from './components/SimShotBadges';
 import { ClubPicker } from './components/ClubPicker';
 import { ClubSelectScreen } from './components/ClubSelectScreen';
 import { BallDetectionIndicator } from './components/BallDetectionIndicator';
@@ -65,6 +67,8 @@ function AppContent() {
     connected,
     mockMode,
     debugMode,
+    simStatuses,
+    latestSimShots,
     debugReadings,
     debugShotLogs,
     radarConfig,
@@ -183,6 +187,7 @@ function AppContent() {
             confidence={cameraStatus.ball_confidence}
             onToggle={toggleCamera}
           />
+          <SimStatus statuses={simStatuses} />
           <ConnectionStatus connected={connected} />
           <button
             className="power-button"
@@ -259,6 +264,7 @@ function AppContent() {
           <div className="live-view">
             {isNewShot && <div key={shotVersion} className="shot-flash" />}
             <ShotDisplay key={shotVersion} shot={latestShot} animate={isNewShot} />
+            <SimShotBadges latestSimShots={latestSimShots} />
             {mockMode && (
               <button className="simulate-button" onClick={simulateShot}>
                 Simulate Shot
