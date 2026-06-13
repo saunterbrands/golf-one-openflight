@@ -95,6 +95,8 @@ export function useSocket() {
   // Simulator connectors, keyed by target name (e.g. 'gspro', 'opengolfsim').
   const [simStatuses, setSimStatuses] = useState<Record<string, SimStatus>>({});
   const [latestSimShots, setLatestSimShots] = useState<Record<string, SimShotInfo>>({});
+  // Club pushed by the server (e.g. a simulator changed the current club).
+  const [serverClub, setServerClub] = useState<string | null>(null);
   const [debugReadings, setDebugReadings] = useState<DebugReading[]>([]);
   const [debugShotLogs, setDebugShotLogs] = useState<DebugShotLog[]>([]);
   const [radarConfig, setRadarConfig] = useState<RadarConfig>({
@@ -159,6 +161,11 @@ export function useSocket() {
 
     newSocket.on('sim_shot_dropped', (data: { reason: string }) => {
       console.warn(`Sim shot dropped: ${data.reason}`);
+    });
+
+    // Server pushed a club change (from a simulator, or echoing a local set).
+    newSocket.on('club_changed', (data: { club: string }) => {
+      setServerClub(data.club);
     });
 
     newSocket.on(
@@ -304,6 +311,7 @@ export function useSocket() {
     debugMode,
     simStatuses,
     latestSimShots,
+    serverClub,
     debugReadings,
     debugShotLogs,
     radarConfig,

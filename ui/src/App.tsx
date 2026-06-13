@@ -69,6 +69,7 @@ function AppContent() {
     debugMode,
     simStatuses,
     latestSimShots,
+    serverClub,
     debugReadings,
     debugShotLogs,
     radarConfig,
@@ -106,6 +107,14 @@ function AppContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- shotVersion triggers the effect; isNewShot is only a guard
   }, [shotVersion, isLaunchDaddyMode, triggerExplosion]);
+
+  // Reflect a server-pushed club change (e.g. the club was changed in the
+  // connected simulator) in the local picker. Does not echo back to the server.
+  useEffect(() => {
+    if (serverClub) {
+      setSelectedClub(serverClub);
+    }
+  }, [serverClub]);
 
   const handleClubChange = (club: string) => {
     setSelectedClub(club);

@@ -6,6 +6,7 @@ this module never imports a specific protocol.
 """
 
 import logging
+import os
 import socket
 import threading
 import time
@@ -20,6 +21,10 @@ from openflight.sim.types import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_BACKOFF: Tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 16.0, 30.0)
+
+# Diagnostic: set OPENFLIGHT_SIM_LOG_RAW=1 to log every inbound frame verbatim
+# (useful for capturing a simulator's exact wire format).
+_LOG_RAW_FRAMES = bool(os.environ.get("OPENFLIGHT_SIM_LOG_RAW"))
 
 
 class Codec(Protocol):
@@ -302,6 +307,8 @@ class TcpSimClient:
                     break
                 chunk = bytes(buffer[:end])
                 del buffer[:end]
+                if _LOG_RAW_FRAMES:
+                    logger.info("[%s] raw ← %s", self._name, chunk.decode("utf-8", "replace"))
                 try:
                     events = self._codec.parse_inbound(chunk)
                 except ValueError as e:
