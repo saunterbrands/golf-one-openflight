@@ -27,8 +27,8 @@ def test_shot_reaches_both_sims_in_their_own_formats():
         cfgs = [
             ConnectorConfig(type="gspro", enabled=True, host=gspro_srv.host,
                             port=gspro_srv.port),
-            ConnectorConfig(type="opengolfsim", enabled=True, host=ogs_srv.host,
-                            port=ogs_srv.port, units="imperial"),
+            ConnectorConfig(type="opengolfsim", transport="native", enabled=True,
+                            host=ogs_srv.host, port=ogs_srv.port, units="imperial"),
         ]
         connectors = build_connectors(cfgs)
         for c in connectors:

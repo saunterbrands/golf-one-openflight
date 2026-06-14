@@ -47,11 +47,47 @@ def test_cli_enables_and_overrides_host_port(tmp_path):
     assert cfgs[0].port == 9000
 
 
-def test_cli_without_port_keeps_default_port(tmp_path):
+def test_cli_without_port_uses_openconnect_default(tmp_path):
+    # --opengolfsim defaults to the OpenConnect transport (921), not native.
     cfgs = load_sim_config(opengolfsim="192.168.1.9", config_path=tmp_path / "absent.json")
     assert len(cfgs) == 1
     assert cfgs[0].type == "opengolfsim"
-    assert cfgs[0].port == 3111  # default for opengolfsim
+    assert cfgs[0].transport == "openconnect"
+    assert cfgs[0].port == 921
+
+
+def test_opengolfsim_native_transport_defaults(tmp_path):
+    p = _write(tmp_path, {"connectors": [
+        {"type": "opengolfsim", "transport": "native", "enabled": True},
+    ]})
+    cfgs = load_sim_config(config_path=p)
+    assert cfgs[0].transport == "native"
+    assert cfgs[0].port == 3111  # native default
+    assert cfgs[0].units == "imperial"
+
+
+def test_opengolfsim_openconnect_transport_defaults(tmp_path):
+    p = _write(tmp_path, {"connectors": [
+        {"type": "opengolfsim", "enabled": True},  # transport omitted -> openconnect
+    ]})
+    cfgs = load_sim_config(config_path=p)
+    assert cfgs[0].transport == "openconnect"
+    assert cfgs[0].port == 921  # openconnect default
+
+
+def test_gspro_transport_is_always_openconnect(tmp_path):
+    p = _write(tmp_path, {"connectors": [{"type": "gspro", "enabled": True}]})
+    cfgs = load_sim_config(config_path=p)
+    assert cfgs[0].transport == "openconnect"
+    assert cfgs[0].port == 921
+
+
+def test_unknown_transport_raises(tmp_path):
+    p = _write(tmp_path, {"connectors": [
+        {"type": "opengolfsim", "transport": "carrier-pigeon", "enabled": True},
+    ]})
+    with pytest.raises(ValueError):
+        load_sim_config(config_path=p)
 
 
 def test_no_sim_disables_everything(tmp_path):

@@ -3,6 +3,12 @@
 A single file lists every connector; the server streams to all that are
 enabled. CLI flags enable/override individual connectors for quick local runs.
 Precedence: --no-sim > per-sim CLI flag > file > per-type defaults.
+
+A connector's ``type`` is the *product* (gspro, opengolfsim). For OpenGolfSim,
+``transport`` selects how it's reached:
+  - "openconnect": OGS's OpenConnect plugin on 921 (shots + club sync)
+  - "native":      OGS's native API on 3111 (shots only)
+GSPro is always OpenConnect.
 """
 
 import json
@@ -12,22 +18,18 @@ from typing import Dict, List, Optional, Tuple
 
 DEFAULT_CONFIG_PATH = Path("config/sim.json")
 
-# Per-type defaults applied when a field is absent from the file/CLI.
-_DEFAULTS: Dict[str, dict] = {
-    "gspro": {
-        "port": 921,
-        "units": "Yards",
-        "device_id": "OpenFlight",
-        "heartbeat_interval_s": 5.0,
-    },
-    "opengolfsim": {
-        "port": 3111,
-        "units": "imperial",
-        "device_id": "OpenFlight",
-        "heartbeat_interval_s": 5.0,
-    },
+KNOWN_TYPES: Tuple[str, ...] = ("gspro", "opengolfsim")
+OGS_TRANSPORTS: Tuple[str, ...] = ("openconnect", "native")
+DEFAULT_OGS_TRANSPORT = "openconnect"
+
+_COMMON_DEFAULTS = {"device_id": "OpenFlight", "heartbeat_interval_s": 5.0}
+
+# Per-(type, transport) defaults applied when a field is absent from file/CLI.
+_DEFAULTS: Dict[Tuple[str, str], dict] = {
+    ("gspro", "openconnect"): {"port": 921, "units": "Yards"},
+    ("opengolfsim", "openconnect"): {"port": 921, "units": "Yards"},
+    ("opengolfsim", "native"): {"port": 3111, "units": "imperial"},
 }
-KNOWN_TYPES: Tuple[str, ...] = tuple(_DEFAULTS.keys())
 
 
 @dataclass
@@ -35,6 +37,7 @@ class ConnectorConfig:
     """One resolved simulator endpoint."""
 
     type: str
+    transport: str = DEFAULT_OGS_TRANSPORT
     enabled: bool = False
     host: str = "127.0.0.1"
     port: int = 0
@@ -43,11 +46,27 @@ class ConnectorConfig:
     heartbeat_interval_s: float = 5.0
 
 
+def _resolve_transport(connector_type: str, data: dict) -> str:
+    """GSPro is always OpenConnect; OGS may pick openconnect (default) or native."""
+    if connector_type == "gspro":
+        return "openconnect"
+    transport = str(data.get("transport", DEFAULT_OGS_TRANSPORT))
+    if transport not in OGS_TRANSPORTS:
+        raise ValueError(
+            f"unknown transport {transport!r} for {connector_type}; "
+            f"expected one of {OGS_TRANSPORTS}"
+        )
+    return transport
+
+
 def _with_defaults(connector_type: str, data: dict) -> ConnectorConfig:
-    base = dict(_DEFAULTS.get(connector_type, {}))
+    transport = _resolve_transport(connector_type, data)
+    base = dict(_COMMON_DEFAULTS)
+    base.update(_DEFAULTS[(connector_type, transport)])
     base.update(data)
     return ConnectorConfig(
         type=connector_type,
+        transport=transport,
         enabled=bool(base.get("enabled", False)),
         host=str(base.get("host", "127.0.0.1")),
         port=int(base["port"]),
@@ -79,7 +98,9 @@ def load_sim_config(
     """Resolve the enabled connector configs. Returns only enabled connectors.
 
     ``gspro``/``opengolfsim`` are CLI overrides of the form 'host[:port]' that
-    also force that connector enabled. ``no_sim`` disables everything.
+    also force that connector enabled (``--opengolfsim`` uses the OpenConnect
+    transport by default; set "transport": "native" in the file for 3111).
+    ``no_sim`` disables everything.
     """
     by_type: Dict[str, ConnectorConfig] = {}
 

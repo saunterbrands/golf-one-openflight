@@ -42,17 +42,20 @@ list and a log line `Listening for OpenConnect V1 clients at 127.0.0.1:921`.
 
 ## Use from OpenFlight
 
-Point OpenFlight's **GSPro** connector at the OGS machine on port **921** (not
-the native `opengolfsim`/3111 path — use one or the other, not both, or OGS
-gets duplicate shots). In `config/sim.json`:
+Configure OpenFlight's **OpenGolfSim** connector with the **openconnect**
+transport (port 921) — not the `native`/3111 transport; use one or the other,
+not both, or OGS gets duplicate shots. In `config/sim.json`:
 
 ```json
 {
   "connectors": [
-    { "type": "gspro", "enabled": true, "host": "127.0.0.1", "port": 921 }
+    { "type": "opengolfsim", "transport": "openconnect", "enabled": true, "host": "127.0.0.1", "port": 921 }
   ]
 }
 ```
+
+(The openconnect transport speaks the shared OpenConnect V1 codec under the
+hood, but reports as OpenGolfSim in the config, UI, and logs.)
 
 Now: shots stream LM → OGS, and changing the club in OGS updates OpenFlight's
 club picker. See `docs/simulator/opengolfsim.md`.

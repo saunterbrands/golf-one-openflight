@@ -84,6 +84,25 @@ def test_build_connector_gspro():
     assert c.codec.device_id == "Bay7"
 
 
+def test_build_connector_opengolfsim_openconnect_uses_shared_codec_named_ogs():
+    from openflight.gspro.codec import GSProCodec
+
+    c = build_connector(ConnectorConfig(
+        type="opengolfsim", transport="openconnect", host="127.0.0.1", port=921))
+    # OGS-over-OpenConnect reuses the OpenConnect (GSPro) codec, named "opengolfsim".
+    assert isinstance(c.codec, GSProCodec)
+    assert c.name == "opengolfsim"
+
+
+def test_build_connector_opengolfsim_native_uses_native_codec():
+    from openflight.opengolfsim.codec import OpenGolfSimCodec
+
+    c = build_connector(ConnectorConfig(
+        type="opengolfsim", transport="native", host="127.0.0.1", port=3111))
+    assert isinstance(c.codec, OpenGolfSimCodec)
+    assert c.name == "opengolfsim"
+
+
 def test_build_connector_unknown_type_raises():
     with pytest.raises(ValueError):
         build_connector(ConnectorConfig(type="nope", port=1))

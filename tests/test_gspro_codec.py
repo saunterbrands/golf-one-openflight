@@ -99,3 +99,9 @@ def test_parse_unknown_code_yields_nothing():
 def test_fields_for_target_lists_logical_fields():
     fields = GSProCodec().fields_for_target()
     assert "ball_speed" in fields and "carry" in fields and "club_path" in fields
+
+
+def test_name_defaults_to_gspro_and_is_configurable():
+    assert GSProCodec().name == "gspro"
+    # OGS reaches this same OpenConnect codec under its own target name.
+    assert GSProCodec(name="opengolfsim").name == "opengolfsim"

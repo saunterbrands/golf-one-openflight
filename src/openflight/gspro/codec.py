@@ -41,11 +41,15 @@ _GSPRO_FIELDS = [
 
 
 class GSProCodec:
-    """OpenConnectV1 wire format."""
+    """OpenConnect V1 wire format (used by GSPro and by OpenGolfSim's
+    OpenConnect plugin). ``name`` is the connector/display target — "gspro" for
+    GSPro, "opengolfsim" when this codec drives OGS over its OpenConnect plugin.
+    """
 
-    name = "gspro"
-
-    def __init__(self, device_id: str = "OpenFlight", units: str = "Yards"):
+    def __init__(
+        self, device_id: str = "OpenFlight", units: str = "Yards", name: str = "gspro"
+    ):
+        self.name = name
         self.device_id = device_id
         self.units = units
 
