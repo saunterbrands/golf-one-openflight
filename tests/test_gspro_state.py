@@ -18,3 +18,19 @@ def test_unknown_code_maps_to_unknown():
 
 def test_putter_out_of_scope_maps_to_unknown():
     assert gspro_code_to_club("PT") is ClubType.UNKNOWN
+
+
+def test_all_openconnect_codes_from_ogs_plugin_map_to_real_clubs():
+    """Contract: every code the OGS club-sync plugin can emit maps to a club.
+
+    The plugin (tools/ogs-openconnect-plugin) converts OGS club ids to these
+    OpenConnect codes; each must resolve to a non-UNKNOWN ClubType here, or club
+    sync would silently produce UNKNOWN.
+    """
+    codes = [
+        "DR", "W3", "W5", "W7", "H3", "H5", "H7", "H9",
+        "I2", "I3", "I4", "I5", "I6", "I7", "I8", "I9",
+        "PW", "GW", "SW", "LW",
+    ]
+    for code in codes:
+        assert gspro_code_to_club(code) is not ClubType.UNKNOWN, code
