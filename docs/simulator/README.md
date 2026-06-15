@@ -23,33 +23,29 @@ simulator. For setting up a specific simulator, see its page above.
    ```jsonc
    {
      "connectors": [
-       // OpenGolfSim via its Developer API on 3111 (speaks OpenConnect). Club
-       // sync needs the scripts/setup/opengolfsim patch; see opengolfsim.md.
-       { "type": "opengolfsim", "transport": "openconnect", "enabled": true, "host": "127.0.0.1", "port": 3111 },
+       // OpenGolfSim via its Developer API on 3111 (speaks OpenConnect V1).
+       // Club sync needs the scripts/setup/opengolfsim patch; see opengolfsim.md.
+       { "type": "opengolfsim", "enabled": true, "host": "127.0.0.1", "port": 3111 },
        // GSPro
        { "type": "gspro", "enabled": false, "host": "192.168.1.50", "port": 921 }
      ]
    }
    ```
-   A connector's `type` is the *product*; for OpenGolfSim, `transport` picks the
-   wire format to its Developer API (3111) — `openconnect` (shots + club) or
-   `native` (shots only). GSPro is always OpenConnect on 921.
-2. Start OpenFlight normally — enabled connectors come up automatically:
+   A connector's `type` is the *product*. Both ride the shared OpenConnect V1
+   codec — they differ only in name and default port (GSPro 921, OpenGolfSim's
+   Developer API 3111).
+2. **Enable the feature at launch with `--sim`** (off by default). Connectors
+   marked `enabled` in the file then come up:
    ```bash
-   scripts/start-kiosk.sh --kld7
+   scripts/start-kiosk.sh --kld7 --sim
    ```
-3. Or enable/override a connector from the command line for a one-off run:
-   ```bash
-   scripts/start-kiosk.sh --gspro 192.168.1.50            # host, default port 921
-   scripts/start-kiosk.sh --opengolfsim 127.0.0.1          # OGS Developer API (3111)
-   scripts/start-kiosk.sh --no-sim                        # disable all, ignore config
-   ```
-   Precedence: `--no-sim` > per-sim flag > `config/sim.json` > built-in defaults.
+   Without `--sim`, no connectors run regardless of the file. (Once the feature
+   is broadly stable it may default on.)
 
 The header shows a status pill per connector (green = connected, amber =
-connecting/reconnecting, red = error, gray = disabled). After each shot, a
-"Sent to <sim>" panel shows every field that was sent with an **M** (measured)
-or **E** (estimated) badge.
+connecting/reconnecting, red = error, gray = disabled). In **debug mode**, a
+per-shot "Sent to <sim>" panel shows every field that was sent with an **M**
+(measured) or **E** (estimated) badge.
 
 ## How it works
 
@@ -62,7 +58,7 @@ OPS243 + K-LD7  ──►  shot pipeline  ──►  on_shot_detected()
                                               ▼
                               ┌───────────────┼───────────────┐
                               ▼               ▼               ▼
-                        GSProCodec      OpenGolfSimCodec    (future)   ← per-sim codec
+                  OpenConnect V1 codec (gspro/codec.py)    (future)   ← per-sim codec
                               │               │
                         TcpSimClient    TcpSimClient                   ← sim/transport.py
                               ▼               ▼
@@ -134,8 +130,8 @@ errors the same way regardless of simulator.
    `heartbeat_bytes()` if the protocol has no keepalive.
 2. **Register it.** Add the type to `_codec_for()` and to `_DEFAULTS` /
    `KNOWN_TYPES` in `sim/config.py` (default host/port/units).
-3. **Add a CLI flag (optional).** Mirror `--gspro` / `--opengolfsim` in
-   `server.py` `main()` and in `scripts/start-kiosk.sh`.
+3. **No new CLI flag needed.** The single `--sim` gate enables all connectors
+   from `config/sim.json`; just add your connector there.
 4. **UI display names.** Add the target → display-name entry in
    `ui/src/components/SimStatus.tsx` and `SimShotBadges.tsx`.
 5. **Tests.** Add a codec round-trip test (serialize + parse inbound) and a

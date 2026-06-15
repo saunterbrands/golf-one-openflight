@@ -42,9 +42,9 @@ requirements and setup specific to GSPro.
      ]
    }
    ```
-   Or skip the file and pass it at launch:
+   Then enable simulator connectors at launch with `--sim` (off by default):
    ```bash
-   scripts/start-kiosk.sh --kld7 --gspro 192.168.1.50
+   scripts/start-kiosk.sh --kld7 --sim
    ```
 
 3. **Open GSPro and start a round**, then open the **GSPro Connect** window

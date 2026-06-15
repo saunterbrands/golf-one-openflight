@@ -2,7 +2,6 @@
   "connectors": [
     {
       "type": "opengolfsim",
-      "transport": "openconnect",
       "enabled": false,
       "host": "127.0.0.1",
       "port": 3111,

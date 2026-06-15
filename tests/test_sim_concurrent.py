@@ -1,4 +1,8 @@
-"""Integration: two connectors (GSPro + OpenGolfSim) running concurrently."""
+"""Integration: two connectors (GSPro + OpenGolfSim) running concurrently.
+
+Both ride the shared OpenConnect V1 codec; they differ only in target/name. The
+shot must reach each connector's own endpoint independently.
+"""
 import json
 import time
 from datetime import datetime
@@ -7,6 +11,7 @@ from openflight.launch_monitor import ClubType, Shot
 from openflight.sim.codec import build_connectors
 from openflight.sim.config import ConnectorConfig
 from openflight.sim.resolver import resolve_shot
+from openflight.sim.transport import find_json_end
 from openflight.sim.types import ConnectionState, PlayerState
 from tests.conftest import MockSimServer
 
@@ -20,17 +25,31 @@ def _wait(connector, state, deadline=3.0):
     return False
 
 
-def test_shot_reaches_both_sims_in_their_own_formats():
+def _frames(received_chunks):
+    """Concatenate received bytes and split into individual JSON objects."""
+    buf = b"".join(received_chunks)
+    out = []
+    while True:
+        end = find_json_end(buf)
+        if end is None:
+            break
+        out.append(json.loads(buf[:end]))
+        buf = buf[end:]
+    return out
+
+
+def test_shot_reaches_both_sims():
     gspro_srv = MockSimServer()
     ogs_srv = MockSimServer()
     try:
         cfgs = [
             ConnectorConfig(type="gspro", enabled=True, host=gspro_srv.host,
                             port=gspro_srv.port),
-            ConnectorConfig(type="opengolfsim", transport="native", enabled=True,
-                            host=ogs_srv.host, port=ogs_srv.port, units="imperial"),
+            ConnectorConfig(type="opengolfsim", enabled=True, host=ogs_srv.host,
+                            port=ogs_srv.port),
         ]
         connectors = build_connectors(cfgs)
+        assert {c.name for c in connectors} == {"gspro", "opengolfsim"}
         for c in connectors:
             c.start()
         try:
@@ -47,36 +66,14 @@ def test_shot_reaches_both_sims_in_their_own_formats():
             while time.time() < deadline and not (gspro_srv.received and ogs_srv.received):
                 time.sleep(0.05)
 
-            # OpenGolfSim sends a device-ready frame on connect, then the shot.
-            gspro_msgs = [json.loads(m) for m in _split(gspro_srv.received)]
-            ogs_msgs = [json.loads(m) for m in _split(ogs_srv.received)]
-
-            gspro_shot = next(m for m in gspro_msgs if "BallData" in m)
-            assert gspro_shot["BallData"]["Speed"] == 135.0
-            assert gspro_shot["APIversion"] == "1"
-
-            ogs_shot = next(m for m in ogs_msgs if m.get("type") == "shot")
-            assert ogs_shot["shot"]["ballSpeed"] == 135.0
-            assert ogs_shot["shot"]["spinSpeed"] == int(round(resolved.total_spin_rpm))
-            assert any(m.get("type") == "device" for m in ogs_msgs)
+            # Both speak OpenConnect V1 — each endpoint gets the BallData shot.
+            for srv in (gspro_srv, ogs_srv):
+                shot_msg = next(m for m in _frames(srv.received) if "BallData" in m)
+                assert shot_msg["BallData"]["Speed"] == 135.0
+                assert shot_msg["APIversion"] == "1"
         finally:
             for c in connectors:
                 c.stop()
     finally:
         gspro_srv.stop()
         ogs_srv.stop()
-
-
-def _split(received_chunks):
-    """Concatenate received bytes and split into individual JSON objects."""
-    from openflight.sim.transport import find_json_end
-
-    buf = b"".join(received_chunks)
-    out = []
-    while True:
-        end = find_json_end(buf)
-        if end is None:
-            break
-        out.append(buf[:end])
-        buf = buf[end:]
-    return out

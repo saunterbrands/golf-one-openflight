@@ -28,7 +28,8 @@ _LOG_RAW_FRAMES = bool(os.environ.get("OPENFLIGHT_SIM_LOG_RAW"))
 
 
 class Codec(Protocol):
-    """Wire format for one simulator. See gspro.codec / opengolfsim.codec."""
+    """Wire format for one simulator. See gspro.codec (the shared OpenConnect V1
+    codec used by both GSPro and OpenGolfSim)."""
 
     name: str
 

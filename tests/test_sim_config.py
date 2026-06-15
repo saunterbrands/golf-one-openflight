@@ -1,4 +1,4 @@
-"""Tests for sim.config — config/sim.json + CLI merge and precedence."""
+"""Tests for sim.config — config/sim.json parsing (enabled connectors only)."""
 import json
 
 import pytest
@@ -13,8 +13,7 @@ def _write(tmp_path, obj):
 
 
 def test_missing_file_means_no_connectors(tmp_path):
-    cfgs = load_sim_config(config_path=tmp_path / "absent.json")
-    assert cfgs == []
+    assert load_sim_config(config_path=tmp_path / "absent.json") == []
 
 
 def test_file_enabled_connector_loaded(tmp_path):
@@ -31,89 +30,40 @@ def test_file_enabled_connector_loaded(tmp_path):
 def test_disabled_connectors_excluded(tmp_path):
     p = _write(tmp_path, {"connectors": [
         {"type": "gspro", "enabled": False, "port": 921},
-        {"type": "opengolfsim", "enabled": True, "port": 3111},
+        {"type": "opengolfsim", "enabled": True},
     ]})
     cfgs = load_sim_config(config_path=p)
     assert [c.type for c in cfgs] == ["opengolfsim"]
 
 
-def test_cli_enables_and_overrides_host_port(tmp_path):
-    p = _write(tmp_path, {"connectors": [
-        {"type": "gspro", "enabled": False, "host": "1.1.1.1", "port": 921},
-    ]})
-    cfgs = load_sim_config(gspro="192.168.1.50:9000", config_path=p)
-    assert len(cfgs) == 1
-    assert cfgs[0].host == "192.168.1.50"
-    assert cfgs[0].port == 9000
-
-
-def test_cli_without_port_uses_openconnect_default(tmp_path):
-    # --opengolfsim defaults to the OpenConnect transport on OGS's Developer
-    # API port (3111), not native.
-    cfgs = load_sim_config(opengolfsim="192.168.1.9", config_path=tmp_path / "absent.json")
-    assert len(cfgs) == 1
-    assert cfgs[0].type == "opengolfsim"
-    assert cfgs[0].transport == "openconnect"
-    assert cfgs[0].port == 3111
-
-
-def test_opengolfsim_native_transport_defaults(tmp_path):
-    p = _write(tmp_path, {"connectors": [
-        {"type": "opengolfsim", "transport": "native", "enabled": True},
-    ]})
-    cfgs = load_sim_config(config_path=p)
-    assert cfgs[0].transport == "native"
-    assert cfgs[0].port == 3111  # native default
-    assert cfgs[0].units == "imperial"
-
-
-def test_opengolfsim_openconnect_transport_defaults(tmp_path):
-    p = _write(tmp_path, {"connectors": [
-        {"type": "opengolfsim", "enabled": True},  # transport omitted -> openconnect
-    ]})
-    cfgs = load_sim_config(config_path=p)
-    assert cfgs[0].transport == "openconnect"
-    assert cfgs[0].port == 3111  # OGS serves OpenConnect from the Developer API on 3111
-
-
-def test_gspro_transport_is_always_openconnect(tmp_path):
+def test_gspro_default_port(tmp_path):
     p = _write(tmp_path, {"connectors": [{"type": "gspro", "enabled": True}]})
-    cfgs = load_sim_config(config_path=p)
-    assert cfgs[0].transport == "openconnect"
-    assert cfgs[0].port == 921
+    assert load_sim_config(config_path=p)[0].port == 921
 
 
-def test_unknown_transport_raises(tmp_path):
+def test_opengolfsim_default_port(tmp_path):
+    # OGS is reached on its Developer API port (3111).
+    p = _write(tmp_path, {"connectors": [{"type": "opengolfsim", "enabled": True}]})
+    assert load_sim_config(config_path=p)[0].port == 3111
+
+
+def test_explicit_port_overrides_default(tmp_path):
     p = _write(tmp_path, {"connectors": [
-        {"type": "opengolfsim", "transport": "carrier-pigeon", "enabled": True},
+        {"type": "opengolfsim", "enabled": True, "host": "192.168.1.9", "port": 9000},
     ]})
-    with pytest.raises(ValueError):
-        load_sim_config(config_path=p)
-
-
-def test_no_sim_disables_everything(tmp_path):
-    p = _write(tmp_path, {"connectors": [
-        {"type": "gspro", "enabled": True, "port": 921},
-    ]})
-    cfgs = load_sim_config(gspro="1.2.3.4", no_sim=True, config_path=p)
-    assert cfgs == []
+    cfg = load_sim_config(config_path=p)[0]
+    assert cfg.host == "192.168.1.9" and cfg.port == 9000
 
 
 def test_multiple_connectors_both_enabled(tmp_path):
     p = _write(tmp_path, {"connectors": [
-        {"type": "gspro", "enabled": True, "port": 921},
-        {"type": "opengolfsim", "enabled": True, "port": 3111},
+        {"type": "gspro", "enabled": True},
+        {"type": "opengolfsim", "enabled": True},
     ]})
-    cfgs = load_sim_config(config_path=p)
-    assert {c.type for c in cfgs} == {"gspro", "opengolfsim"}
+    assert {c.type for c in load_sim_config(config_path=p)} == {"gspro", "opengolfsim"}
 
 
 def test_unknown_type_in_file_raises(tmp_path):
     p = _write(tmp_path, {"connectors": [{"type": "bogus", "port": 1}]})
     with pytest.raises(ValueError):
         load_sim_config(config_path=p)
-
-
-def test_bad_cli_port_raises(tmp_path):
-    with pytest.raises(ValueError):
-        load_sim_config(gspro="host:notaport", config_path=tmp_path / "absent.json")

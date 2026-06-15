@@ -2475,19 +2475,10 @@ def main():
     )
     parser.add_argument("--no-logging", action="store_true", help="Disable session logging")
     parser.add_argument(
-        "--gspro",
-        metavar="HOST[:PORT]",
-        help="Enable the GSPro connector and override its host/port (default port 921).",
-    )
-    parser.add_argument(
-        "--opengolfsim",
-        metavar="HOST[:PORT]",
-        help="Enable the OpenGolfSim connector and override its host/port (default port 3111).",
-    )
-    parser.add_argument(
-        "--no-sim",
+        "--sim",
         action="store_true",
-        help="Disable all simulator connectors even if config/sim.json enables them.",
+        help="Enable simulator connectors from config/sim.json (GSPro / OpenGolfSim). "
+        "Off by default.",
     )
     parser.add_argument(
         "--ballistics",
@@ -2788,18 +2779,18 @@ def main():
         sample_rate_ksps=args.sample_rate,
     )
 
-    # Simulator connectors (optional). Started after the monitor exists so
-    # inbound club updates can call monitor.set_club().
+    # Simulator connectors (off unless --sim). Started after the monitor exists
+    # so inbound club updates can call monitor.set_club().
     global sim_connectors  # pylint: disable=global-statement
-    sim_cfgs = load_sim_config(
-        gspro=args.gspro, opengolfsim=args.opengolfsim, no_sim=args.no_sim
-    )
+    sim_cfgs = load_sim_config() if args.sim else []
     sim_connectors = build_connectors(
         sim_cfgs, on_status=_sim_on_status, on_inbound=_sim_on_inbound
     )
     for connector in sim_connectors:
         connector.start()
         print(f"Simulator connector enabled: {connector.name} -> {connector.host}:{connector.port}")
+    if args.sim and not sim_connectors:
+        print("Simulator connectors enabled (--sim) but none are enabled in config/sim.json")
 
     if args.mock:
         print("Running in MOCK mode - no radar required")
