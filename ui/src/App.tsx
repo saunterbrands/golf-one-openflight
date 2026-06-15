@@ -273,7 +273,7 @@ function AppContent() {
           <div className="live-view">
             {isNewShot && <div key={shotVersion} className="shot-flash" />}
             <ShotDisplay key={shotVersion} shot={latestShot} animate={isNewShot} />
-            <SimShotBadges latestSimShots={latestSimShots} />
+            {debugMode && <SimShotBadges latestSimShots={latestSimShots} />}
             {mockMode && (
               <button className="simulate-button" onClick={simulateShot}>
                 Simulate Shot
