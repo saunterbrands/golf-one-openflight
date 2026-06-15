@@ -23,6 +23,16 @@ openflight-cloud push              # filter + upload anything not yet pushed
 `scripts/setup/setup.sh` offers to enable cloud sync and link the Pi for you
 (on a Raspberry Pi). Everything below can also be done by hand.
 
+> **Upgrading an existing install?** The `openflight-cloud` command is created
+> at install time. If you added cloud sync by pulling new code into a venv that
+> predates it, reinstall so the console script gets wired up:
+>
+> ```bash
+> uv pip install -e .
+> ```
+>
+> Until then you can run it as a module: `python -m openflight.cloud.cli link`.
+
 ## Linking a device
 
 You never copy a long token onto the Pi. Linking uses a short, screen-readable
