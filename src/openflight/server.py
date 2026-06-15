@@ -91,7 +91,11 @@ ballistics_enabled: bool = False
 # CLI flags; shots fan out to every connected connector. Player/club state is
 # shared across all of them.
 sim_connectors: List = []
-sim_player_state = SimPlayerState()
+# Seed the shot counter from the clock (epoch ms) so ShotNumber strictly
+# increases across server restarts. Some sims (e.g. OpenGolfSim's Developer API)
+# reject any ShotNumber <= the highest they've seen, and that counter persists
+# across reconnects — a per-run reset to 1 would get every shot dropped.
+sim_player_state = SimPlayerState(shot_counter=int(time.time() * 1000))
 
 _DEFAULT_KLD7_RADC_TUNING = {
     "radc_speed_tolerance_mph": 10.0,
