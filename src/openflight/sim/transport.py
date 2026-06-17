@@ -26,6 +26,11 @@ DEFAULT_BACKOFF: Tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 16.0, 30.0)
 # (useful for capturing a simulator's exact wire format).
 _LOG_RAW_FRAMES = bool(os.environ.get("OPENFLIGHT_SIM_LOG_RAW"))
 
+# Backstop for the inbound framer: real frames are a few hundred bytes, so if the
+# undrained buffer ever passes this with no complete frame, the peer is misframing
+# (truncation / protocol bug) and we drop it rather than grow memory without limit.
+_MAX_FRAME_BYTES = 64 * 1024
+
 
 class Codec(Protocol):
     """Wire format for one simulator. See gspro.codec (the shared OpenConnect V1
@@ -320,3 +325,12 @@ class TcpSimClient:
                     continue
                 for event in events:
                     self._dispatch(event)
+            # Drained all complete frames; if the incomplete remainder has grown
+            # past the cap, the peer never closed a frame — drop it and resync.
+            if len(buffer) > _MAX_FRAME_BYTES:
+                logger.warning(
+                    "[%s] inbound buffer exceeded %d bytes with no complete frame; resetting",
+                    self._name,
+                    _MAX_FRAME_BYTES,
+                )
+                buffer.clear()

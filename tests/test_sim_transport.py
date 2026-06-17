@@ -279,3 +279,30 @@ def test_send_raw_while_disconnected_raises_oserror_subclass():
     client = TcpSimClient("127.0.0.1", 1, GSProCodec())  # never started → _sock is None
     with pytest.raises(ConnectionError):
         client.send_raw(b'{"x":1}')
+
+
+def test_recv_buffer_resets_on_oversized_unclosed_frame():
+    """A frame whose braces never close must not grow the recv buffer without
+    bound or wedge the connection (PR #115 review #3). After the buffer overflows
+    and resets, a subsequent valid frame is still parsed — proving it didn't stay
+    stuck behind the unclosed one.
+    """
+    events = []
+    client = _client("127.0.0.1", 1, on_inbound=events.append)
+    valid = b'{"Code":201,"Player":{"Handed":"LH","Club":"I7"}}'
+    # never-closing frame (open brace, no close) larger than the cap, then a real
+    # frame, then EOF to end the loop.
+    chunks = [b"{" + b"x" * (70 * 1024), valid, b""]
+
+    class _FakeSock:
+        def settimeout(self, _timeout):
+            pass
+
+        def recv(self, _n):
+            return chunks.pop(0) if chunks else b""
+
+    client._sock = _FakeSock()
+    client._recv_loop()
+
+    assert len(events) == 1
+    assert isinstance(events[0], PlayerUpdate)
