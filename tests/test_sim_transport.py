@@ -7,6 +7,8 @@ import json
 import time
 from typing import List, Optional
 
+import pytest
+
 from openflight.gspro.codec import GSProCodec
 from openflight.sim.transport import find_json_end, TcpSimClient
 from openflight.sim.types import (
@@ -261,3 +263,19 @@ def test_stop_is_idempotent(mock_sim):
     client.stop()
     client.stop()  # should not raise
     assert client.state == ConnectionState.STOPPED
+
+
+def test_send_raw_while_disconnected_raises_oserror_subclass():
+    """Regression (PR #115 review): a send after the socket has gone away must
+    raise an OSError subclass, not a bare RuntimeError.
+
+    The shot pipeline (server._forward_shot_to_simulators) guards each send with
+    ``except OSError`` and promises it "never raises into" on_shot_detected. There
+    is a real TOCTOU window — is_connected() can return True, then _close_socket()
+    sets _sock = None before the next send acquires the lock. If that path raises
+    RuntimeError it slips past the OSError guard and propagates into the shot
+    thread. ConnectionError is an OSError subclass, so it's caught.
+    """
+    client = TcpSimClient("127.0.0.1", 1, GSProCodec())  # never started → _sock is None
+    with pytest.raises(ConnectionError):
+        client.send_raw(b'{"x":1}')

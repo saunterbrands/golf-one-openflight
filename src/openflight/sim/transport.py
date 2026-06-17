@@ -163,7 +163,10 @@ class TcpSimClient:
     def send_raw(self, data: bytes) -> None:
         with self._sock_lock:
             if self._sock is None:
-                raise RuntimeError("send_raw called while not connected")
+                # ConnectionError (an OSError subclass) rather than RuntimeError so
+                # the shot pipeline's `except OSError` guard catches a send that
+                # races a disconnect, instead of it propagating into on_shot_detected.
+                raise ConnectionError("send_raw called while not connected")
             self._sock.sendall(data)
         with self._send_time_lock:
             self._last_send_time = time.time()

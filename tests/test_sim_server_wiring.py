@@ -23,7 +23,11 @@ def server(monkeypatch):
     # Reset shared state between tests
     srv.sim_connectors = []
     srv.sim_player_state = srv.SimPlayerState()
-    return srv
+    yield srv
+    # Don't leak fake connectors / player state into other test modules
+    # (server.on_shot_detected reads these globals).
+    srv.sim_connectors = []
+    srv.sim_player_state = srv.SimPlayerState()
 
 
 class _FakeConnector:
@@ -144,3 +148,26 @@ def test_status_connected_logged_always(server, caplog):
                         host="127.0.0.1", port=921),
         )
     assert "gspro connected" in caplog.text
+
+
+def test_forward_swallows_send_failure(server):
+    """A connector that drops between is_connected() and send must not raise into
+    the shot pipeline — the failure is logged + emitted as sim_send_failed instead
+    (PR #115 review #1). send_raw raises ConnectionError on a raced disconnect, and
+    the OSError guard catches it.
+    """
+
+    def _raise_disconnect(resolved):
+        raise ConnectionError("send_raw called while not connected")
+
+    boom = _FakeConnector("gspro", connected=True)
+    boom.send_shot = _raise_disconnect
+    other = _FakeConnector("opengolfsim", connected=True)
+    server.sim_connectors = [boom, other]
+
+    server._forward_shot_to_simulators(_shot())  # must not raise
+
+    failed = [a_ for a_, k in server._emitted if a_[0] == "sim_send_failed"]
+    assert len(failed) == 1 and failed[0][1]["target"] == "gspro"
+    # a failed connector must not block delivery to the others
+    assert len(other.sent) == 1
