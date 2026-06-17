@@ -67,3 +67,33 @@ def test_unknown_type_in_file_raises(tmp_path):
     p = _write(tmp_path, {"connectors": [{"type": "bogus", "port": 1}]})
     with pytest.raises(ValueError):
         load_sim_config(config_path=p)
+
+
+def test_malformed_json_degrades_to_empty(tmp_path):
+    """A syntactically broken sim.json must not crash startup — sim is opt-in and
+    the core shot pipeline doesn't depend on it (PR #115 review #4)."""
+    p = tmp_path / "sim.json"
+    p.write_text("{ this is not valid json", encoding="utf-8")
+    assert load_sim_config(config_path=p) == []
+
+
+def test_wrong_top_level_shape_degrades_to_empty(tmp_path):
+    p = _write(tmp_path, ["not", "an", "object"])
+    assert load_sim_config(config_path=p) == []
+
+
+def test_unreadable_path_degrades_to_empty(tmp_path):
+    # A directory at the config path: read_text raises IsADirectoryError (OSError).
+    p = tmp_path / "sim.json"
+    p.mkdir()
+    assert load_sim_config(config_path=p) == []
+
+
+def test_malformed_connector_entry_skipped_others_kept(tmp_path):
+    """One broken connector (non-int port) is skipped with a warning, not allowed
+    to drop the valid ones (PR #115 review #4)."""
+    p = _write(tmp_path, {"connectors": [
+        {"type": "gspro", "enabled": True, "port": "not-a-number"},
+        {"type": "opengolfsim", "enabled": True, "port": 3111},
+    ]})
+    assert [c.type for c in load_sim_config(config_path=p)] == ["opengolfsim"]

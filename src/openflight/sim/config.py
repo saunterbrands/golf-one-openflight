@@ -9,9 +9,12 @@ Both ride the shared OpenConnect codec; they differ only in name + default port.
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("config/sim.json")
 
@@ -19,10 +22,18 @@ KNOWN_TYPES: Tuple[str, ...] = ("gspro", "opengolfsim")
 
 # Per-type defaults applied when a field is absent from the file.
 _DEFAULTS: Dict[str, dict] = {
-    "gspro": {"port": 921, "units": "Yards", "device_id": "OpenFlight",
-              "heartbeat_interval_s": 5.0},
-    "opengolfsim": {"port": 3111, "units": "Yards", "device_id": "OpenFlight",
-                    "heartbeat_interval_s": 5.0},
+    "gspro": {
+        "port": 921,
+        "units": "Yards",
+        "device_id": "OpenFlight",
+        "heartbeat_interval_s": 5.0,
+    },
+    "opengolfsim": {
+        "port": 3111,
+        "units": "Yards",
+        "device_id": "OpenFlight",
+        "heartbeat_interval_s": 5.0,
+    },
 }
 
 
@@ -58,16 +69,42 @@ def load_sim_config(config_path: Path = DEFAULT_CONFIG_PATH) -> List[ConnectorCo
 
     Gating the whole feature on/off is the caller's job (the ``--sim`` flag);
     this just reads which connectors the file enables.
+
+    Sim is opt-in and the core shot pipeline doesn't depend on it, so an
+    unreadable/syntactically-broken file degrades to "no connectors" with a
+    warning rather than crashing startup, and a single malformed connector entry
+    is skipped so it can't take the others down with it. An *unknown connector
+    type* still raises — that's a real misconfiguration worth surfacing loudly.
     """
     if not config_path.exists():
         return []
-    data = json.loads(config_path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("[sim] ignoring unreadable %s: %s", config_path, e)
+        return []
+    if not isinstance(data, dict):
+        logger.warning(
+            "[sim] ignoring %s: expected a JSON object, got %s",
+            config_path,
+            type(data).__name__,
+        )
+        return []
     cfgs: List[ConnectorConfig] = []
     for entry in data.get("connectors", []):
+        if not isinstance(entry, dict):
+            logger.warning(
+                "[sim] skipping non-object connector entry in %s: %r", config_path, entry
+            )
+            continue
         ctype = entry.get("type")
         if ctype not in KNOWN_TYPES:
             raise ValueError(f"unknown simulator type in {config_path}: {ctype!r}")
-        cfg = _with_defaults(ctype, entry)
+        try:
+            cfg = _with_defaults(ctype, entry)
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning("[sim] skipping malformed %s connector in %s: %s", ctype, config_path, e)
+            continue
         if cfg.enabled:
             cfgs.append(cfg)
     return cfgs
