@@ -1056,7 +1056,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 calls.append(("ball", shot_timestamp))
                 return KLD7Angle(vertical_deg=12.0, confidence=0.8, num_frames=2)
@@ -1105,7 +1105,7 @@ class TestOnShotDetected:
                 return [{"timestamp": 1000.0, "has_radc": True, "radc_b64": "AQID"}]
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(vertical_deg=12.0, confidence=0.8, num_frames=2)
 
@@ -1161,7 +1161,7 @@ class TestOnShotDetected:
                 return [{"timestamp": 1000.0, "has_radc": True}]
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(vertical_deg=12.0, confidence=0.8, num_frames=2)
 
@@ -1213,7 +1213,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(vertical_deg=79.4, confidence=0.58, num_frames=1)
 
@@ -1250,7 +1250,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(vertical_deg=10.7, confidence=0.89, num_frames=6)
 
@@ -1293,7 +1293,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(vertical_deg=10.7, confidence=0.72, num_frames=6)
 
@@ -1341,6 +1341,7 @@ class TestOnShotDetected:
                 shot_timestamp=None,
                 ball_speed_mph=None,
                 impact_timestamp=None,
+                **kwargs,
             ):
                 return KLD7Angle(
                     vertical_deg=19.9,
@@ -1421,6 +1422,7 @@ class TestOnShotDetected:
                 shot_timestamp=None,
                 ball_speed_mph=None,
                 impact_timestamp=None,
+                **kwargs,
             ):
                 return KLD7Angle(
                     vertical_deg=19.9,
@@ -1559,7 +1561,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(horizontal_deg=1.5, confidence=0.68, num_frames=3)
 
@@ -1602,7 +1604,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(horizontal_deg=16.1, confidence=0.68, num_frames=3)
 
@@ -1646,7 +1648,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(horizontal_deg=-8.1, confidence=0.31, num_frames=19)
 
@@ -1845,7 +1847,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(vertical_deg=18.7, confidence=0.8, num_frames=2)
 
@@ -1909,7 +1911,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(vertical_deg=15.0, confidence=0.7, num_frames=2)
 
@@ -1951,7 +1953,7 @@ class TestOnShotDetected:
                 return []
 
             def get_angle_for_shot(
-                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None
+                self, shot_timestamp=None, ball_speed_mph=None, impact_timestamp=None, **kwargs
             ):
                 return KLD7Angle(vertical_deg=18.7, confidence=0.8, num_frames=2)
 

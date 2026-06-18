@@ -10,6 +10,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Optional
 
+from ..launch_monitor import ClubType
 from ..serial_latency import log_usb_serial_latency_timer
 from .radc import RADC_PAYLOAD_BYTES
 from .types import KLD7Angle, KLD7Frame
@@ -587,6 +588,7 @@ class KLD7Tracker:
         ball_speed_mph: float,
         shot_timestamp: Optional[float] = None,
         impact_timestamp: Optional[float] = None,
+        club: Optional[ClubType] = None,
     ) -> Optional[KLD7Angle]:
         """Extract ball launch angle via RADC phase interferometry.
 
@@ -653,6 +655,7 @@ class KLD7Tracker:
                 impact_timestamp=impact_ts_for_rules,
                 mount_deg=self.mount_tilt_deg,
                 distance_ft=self.ball_distance_ft,
+                club=club,
             )
             if results:
                 best_attempt = select_best_shot_result(results)
@@ -744,6 +747,7 @@ class KLD7Tracker:
         shot_timestamp: Optional[float] = None,
         ball_speed_mph: Optional[float] = None,
         impact_timestamp: Optional[float] = None,
+        club: Optional[ClubType] = None,
     ) -> Optional[KLD7Angle]:
         """Search the ring buffer for the ball launch angle using RADC phase interferometry.
 
@@ -768,6 +772,7 @@ class KLD7Tracker:
                 ball_speed_mph,
                 shot_timestamp=shot_timestamp,
                 impact_timestamp=impact_timestamp,
+                club=club,
             )
             if result is not None:
                 return result

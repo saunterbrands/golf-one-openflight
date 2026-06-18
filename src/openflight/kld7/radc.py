@@ -13,6 +13,8 @@ from functools import lru_cache
 
 import numpy as np
 
+from openflight.launch_monitor import ClubType
+
 from .geometry import (
     GEOM_BALL_ABOVE_RADAR_FT,
     GEOM_FLIGHT_T_MAX_S,
@@ -1433,6 +1435,7 @@ def extract_launch_angle(
     ball_above_radar_ft: float = GEOM_BALL_ABOVE_RADAR_FT,
     range_m: float = 5.0,
     vertical_flight_window_net_distance_ft: float | None = VERTICAL_FLIGHT_WINDOW_NET_DISTANCE_FT,
+    club: ClubType | None = None,
 ) -> list[dict]:
     """Extract vertical launch angle per shot from RADC frames.
 
@@ -1595,6 +1598,7 @@ def extract_launch_angle(
     # the impact timestamp itself); cached across shot groups.
     two_ray_result = None
     two_ray_attempted = False
+    two_ray_tier = None
     for shot_idx, impact_group in enumerate(shot_groups):
         # Expand to impact -1 before, +2 after (ball appears slightly after)
         frame_set = set()
@@ -1930,7 +1934,7 @@ def extract_launch_angle(
             if not two_ray_attempted:
                 two_ray_attempted = True
                 # Lazy import: two_ray imports helpers from this module
-                from .two_ray import estimate_two_ray
+                from .two_ray import classify_two_ray_tier, estimate_two_ray
 
                 two_ray_result = estimate_two_ray(
                     frames,
@@ -1949,8 +1953,20 @@ def extract_launch_angle(
                         two_ray_result.refusal_reason,
                     )
             if two_ray_result is not None and two_ray_result.launch_angle_deg is not None:
-                corrected_angle = float(two_ray_result.launch_angle_deg)
-                estimator_used = "two_ray"
+                if club is None:
+                    # No club context (offline/tests): use two_ray's primary estimate.
+                    corrected_angle = float(two_ray_result.launch_angle_deg)
+                    estimator_used = "two_ray"
+                else:
+                    two_ray_tier = classify_two_ray_tier(
+                        two_ray_result.diagnostics,
+                        float(two_ray_result.launch_angle_deg),
+                        club,
+                    )
+                    if two_ray_tier is not None:
+                        corrected_angle = two_ray_tier.launch_angle_deg
+                        estimator_used = "two_ray"
+                    # else: club not characterized -> fall through to geometry below
 
         # Geometry estimator (vertical only): invert the trajectory geometry
         # from per-frame (flight_time, bearing) rather than treating the bearing
@@ -2135,8 +2151,13 @@ def extract_launch_angle(
         frame_count = len(clean_angs)
         snr_score = min(avg_snr / 10.0, 1.0)
         if estimator_used == "two_ray":
-            # Two-ray carries its own confidence (gates + cross-check)
-            confidence = float(two_ray_result.confidence)
+            # Tier classifier drives confidence (high for Tier-1, low for Tier-2);
+            # falls back to two_ray's own confidence when untiered (no club).
+            confidence = (
+                two_ray_tier.confidence
+                if two_ray_tier is not None
+                else float(two_ray_result.confidence)
+            )
         elif estimator_used == "geometry":
             # Geometry: confidence from the bearing-trajectory fit RMSE
             # (how well the per-frame bearings agree with a single launch

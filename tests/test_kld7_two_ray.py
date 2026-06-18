@@ -18,9 +18,13 @@ from openflight.kld7.two_ray import (
     MPH_TO_FTS,
     SAMPLE_DT_MS,
     SAMPLES,
+    TIER1_CONFIDENCE,
+    TIER2_CONFIDENCE,
+    classify_two_ray_tier,
     estimate_two_ray,
     two_ray_fit,
 )
+from openflight.launch_monitor import ClubType
 
 FT_TO_M = 0.3048
 G_FT_S2 = 32.17
@@ -240,3 +244,76 @@ class TestFrameTiming:
         # 256 samples must span one ~28.7 ms frame
         assert ACQ_MS == pytest.approx(SAMPLES * SAMPLE_DT_MS)
         assert 28.0 < ACQ_MS < 29.5
+
+
+def _diag(pos=None, single=None, nval=0, maxel=0.0, maxsep=0.0):
+    """Build a two_ray diagnostics dict with one frame carrying the requested
+    maxel (max el_deg) and maxsep (|el_deg - el_image_deg|)."""
+    return {
+        "la_position_deg": pos,
+        "la_single_frame_deg": single,
+        "n_frames_valid": nval,
+        "frames": [{"el_deg": maxel, "el_image_deg": maxel - maxsep}],
+    }
+
+
+class TestTwoRayTierClassifier:
+    """The tour-anchored 2-tier decision on top of two_ray (gates 7i:9 / PW:14,
+    far_el boost 7i:+4<7 / PW:+8<9.5)."""
+
+    def test_uncharacterized_club_returns_none(self):
+        # Driver / no club -> None so the caller falls back to geometry.
+        d = _diag(pos=15.0, nval=3, maxel=11.0, maxsep=11.0)
+        assert classify_two_ray_tier(d, 14.0, ClubType.DRIVER) is None
+        assert classify_two_ray_tier(d, 14.0, None) is None
+
+    def test_tier1_clean_gate_trusts_position(self):
+        d = _diag(pos=15.0, nval=3, maxel=11.0, maxsep=11.0)
+        r = classify_two_ray_tier(d, 14.0, ClubType.IRON_7)
+        assert r.tier == 1 and r.boosted is False
+        assert r.launch_angle_deg == 15.0  # la_position as-is
+        assert r.confidence == TIER1_CONFIDENCE
+
+    def test_tier1_requires_position_fit(self):
+        # Gate metrics pass but no la_position -> not Tier-1; drops to Tier-2.
+        d = _diag(pos=None, single=14.0, nval=3, maxel=11.0, maxsep=11.0)
+        r = classify_two_ray_tier(d, 13.0, ClubType.IRON_7)
+        assert r.tier == 2 and r.boosted is False  # maxel 11 >= far_el gate 7
+        assert r.launch_angle_deg == 14.0  # single-frame fallback
+
+    def test_tier2_corrupted_low_boosted_to_tour(self):
+        # Low far_el (corrupted-low) -> +4 boost toward the 7i tour average.
+        d = _diag(pos=None, single=12.0, nval=1, maxel=6.0)
+        r = classify_two_ray_tier(d, 12.0, ClubType.IRON_7)
+        assert r.tier == 2 and r.boosted is True
+        assert r.launch_angle_deg == pytest.approx(16.0)  # 12 + 4
+        assert r.confidence == TIER2_CONFIDENCE
+
+    def test_tier2_not_boosted_when_far_el_ok(self):
+        # Fails Tier-1 (low maxsep) but far_el fine -> Tier-2, no boost.
+        d = _diag(pos=16.0, nval=3, maxel=11.0, maxsep=3.0)
+        r = classify_two_ray_tier(d, 16.0, ClubType.IRON_7)
+        assert r.tier == 2 and r.boosted is False
+        assert r.launch_angle_deg == 16.0
+
+    def test_estimate_falls_back_to_curve_when_no_fits(self):
+        # No position/single-frame fit -> uses two_ray's primary (fallback).
+        d = _diag(pos=None, single=None, nval=0, maxel=6.0)
+        r = classify_two_ray_tier(d, 10.0, ClubType.IRON_7)
+        assert r.boosted is True
+        assert r.launch_angle_deg == pytest.approx(14.0)  # 10 + 4
+
+    def test_per_club_gate_differs(self):
+        # maxel=10 clears the 7i gate (>=9) but not PW (>=14).
+        d = _diag(pos=20.0, nval=3, maxel=10.0, maxsep=11.0)
+        assert classify_two_ray_tier(d, 19.0, ClubType.IRON_7).tier == 1
+        pw = classify_two_ray_tier(d, 19.0, ClubType.PW)
+        assert pw.tier == 2 and pw.boosted is False  # 10 >= PW far_el 9.5
+        assert pw.launch_angle_deg == 20.0
+
+    def test_per_club_boost_differs(self):
+        # PW corrupted-low boost is +8 (vs +4 for 7i), landing near tour avg.
+        d = _diag(pos=None, single=16.0, nval=1, maxel=8.0)  # < PW far_el 9.5
+        pw = classify_two_ray_tier(d, 16.0, ClubType.PW)
+        assert pw.tier == 2 and pw.boosted is True
+        assert pw.launch_angle_deg == pytest.approx(24.0)  # 16 + 8

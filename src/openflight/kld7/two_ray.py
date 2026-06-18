@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from openflight.launch_monitor import ClubType
+
 from .radc import (
     ANTENNA_SPACING_M,
     WAVELENGTH_M,
@@ -110,6 +112,93 @@ class TwoRayEstimate:
 
 def _refuse(reason: str, diag: dict) -> TwoRayEstimate:
     return TwoRayEstimate(None, 0.0, reason, {**diag, "refusal_reason": reason})
+
+
+# --- 2-tier launch-angle decision (tour-anchored) ---------------------------
+#
+# After two_ray produces a launch angle, classify the shot into a confidence
+# tier from its per-shot diagnostics + the club. Calibrated against TrackMan on
+# the 6/15 session (mount tilt 10.5 deg, angle offset 1.5 deg); only the 7-iron
+# and pitching wedge are characterized so far. Tier-1 (clean gate) trusts the
+# position fit directly; Tier-2 (everything else) is low-confidence, and the
+# multipath-corrupted "reads-low" shots (low far_el) are boosted up to the
+# club's tour-average launch. Un-characterized clubs return None, so the caller
+# falls back to the geometry estimator.
+
+_TIER_MAXSEP_MIN_DEG = 9.0
+_TIER_NVAL_MIN = 2
+TIER1_CONFIDENCE = 0.85
+TIER2_CONFIDENCE = 0.40
+
+
+@dataclass
+class _TierClubConfig:
+    """Per-club tier thresholds (calibrated; see module note)."""
+
+    gate_maxel_deg: float  # Tier-1 max-elevation gate (= tour-median launch - 8)
+    far_el_gate_deg: float  # below this far_el, a Tier-2 shot reads corrupted-low
+    boost_deg: float  # additive boost lifting a corrupted-low shot to tour average
+
+
+_TIER_CONFIG: "dict[ClubType, _TierClubConfig]" = {
+    ClubType.IRON_7: _TierClubConfig(gate_maxel_deg=9.0, far_el_gate_deg=7.0, boost_deg=4.0),
+    ClubType.PW: _TierClubConfig(gate_maxel_deg=14.0, far_el_gate_deg=9.5, boost_deg=8.0),
+}
+
+
+@dataclass
+class TierResult:
+    """Tiered launch-angle decision for a two_ray shot."""
+
+    launch_angle_deg: float
+    tier: int  # 1 = trusted gate (high confidence), 2 = low confidence
+    confidence: float
+    boosted: bool  # True if a Tier-2 tour-average boost was applied
+
+
+def classify_two_ray_tier(
+    diagnostics: dict, fallback_angle_deg: float, club: ClubType | None
+) -> TierResult | None:
+    """Assign a two_ray shot to Tier-1/Tier-2 and return the final launch angle.
+
+    ``diagnostics`` is a ``TwoRayEstimate.diagnostics`` dict (la_position_deg,
+    la_single_frame_deg, n_frames_valid, frames[el_deg/el_image_deg]).
+    ``fallback_angle_deg`` is two_ray's primary estimate, used when neither the
+    position nor single-frame fit is available. Returns None when the club is
+    not characterized — the caller should then fall back to the geometry
+    estimator.
+    """
+    cfg = _TIER_CONFIG.get(club)
+    if cfg is None:
+        return None
+
+    pos = diagnostics.get("la_position_deg")
+    single = diagnostics.get("la_single_frame_deg")
+    nval = diagnostics.get("n_frames_valid") or 0
+    frames = diagnostics.get("frames") or []
+    maxsep = max(
+        [abs(f["el_deg"] - f["el_image_deg"]) for f in frames if f.get("el_image_deg") is not None]
+        + [0.0]
+    )
+    maxel = max([f["el_deg"] for f in frames] + [0.0])
+
+    # Tier-1: clean gate -> trust the position fit as-is (high confidence).
+    if (
+        pos is not None
+        and nval >= _TIER_NVAL_MIN
+        and maxsep >= _TIER_MAXSEP_MIN_DEG
+        and maxel >= cfg.gate_maxel_deg
+    ):
+        return TierResult(float(pos), tier=1, confidence=TIER1_CONFIDENCE, boosted=False)
+
+    # Tier-2 (low confidence). Estimate: position -> single-frame -> curve fit.
+    est = pos if pos is not None else (single if single is not None else fallback_angle_deg)
+    # Corrupted-low shots read systematically low -> boost up to the tour average.
+    if maxel < cfg.far_el_gate_deg:
+        return TierResult(
+            float(est) + cfg.boost_deg, tier=2, confidence=TIER2_CONFIDENCE, boosted=True
+        )
+    return TierResult(float(est), tier=2, confidence=TIER2_CONFIDENCE, boosted=False)
 
 
 def _hann_fft(iq: np.ndarray, fft_size: int) -> np.ndarray:

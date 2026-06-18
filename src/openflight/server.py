@@ -1571,6 +1571,7 @@ def on_shot_detected(shot: Shot):
                     shot_timestamp=shot_ts,
                     ball_speed_mph=shot.ball_speed_mph,
                     impact_timestamp=shot.impact_timestamp_kld7,
+                    club=shot.club,
                 )
                 vertical_selection_details = None
                 if kld7_angle and kld7_angle.vertical_deg is not None:

@@ -1720,6 +1720,7 @@ class TestRADCAngleExtraction:
                 "impact_timestamp": None,
                 "mount_deg": 18.0,
                 "distance_ft": 5.5,
+                "club": None,
             }
         ]
 
