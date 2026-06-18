@@ -128,7 +128,12 @@ def _refuse(reason: str, diag: dict) -> TwoRayEstimate:
 _TIER_MAXSEP_MIN_DEG = 9.0
 _TIER_NVAL_MIN = 2
 TIER1_CONFIDENCE = 0.85
-TIER2_CONFIDENCE = 0.40
+# 0.65 is the server's low-confidence display floor (server.py
+# _MIN_VERTICAL_LOW_CONFIDENCE_RADAR_CONFIDENCE). Tier-2 shots are multipath-
+# corrupted and lower-trust, but we still surface them in the UI (as 2 dots /
+# "medium"), so this must sit at or above that floor — anything lower is
+# hard-rejected by the server and never displayed.
+TIER2_CONFIDENCE = 0.65
 
 
 @dataclass
