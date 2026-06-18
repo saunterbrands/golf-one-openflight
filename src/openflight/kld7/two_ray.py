@@ -117,13 +117,20 @@ def _refuse(reason: str, diag: dict) -> TwoRayEstimate:
 # --- 2-tier launch-angle decision (tour-anchored) ---------------------------
 #
 # After two_ray produces a launch angle, classify the shot into a confidence
-# tier from its per-shot diagnostics + the club. Calibrated against TrackMan on
-# the 6/15 session (mount tilt 10.5 deg, angle offset 1.5 deg); only the 7-iron
-# and pitching wedge are characterized so far. Tier-1 (clean gate) trusts the
-# position fit directly; Tier-2 (everything else) is low-confidence, and the
-# multipath-corrupted "reads-low" shots (low far_el) are boosted up to the
-# club's tour-average launch. Un-characterized clubs return None, so the caller
-# falls back to the geometry estimator.
+# tier from its per-shot diagnostics + the club. Tier-1 (clean gate) trusts the
+# position fit directly (high confidence); Tier-2 (everything else) is low
+# confidence, and multipath-corrupted "reads-low" shots (low far_el) are boosted
+# up toward the club's tour-average launch.
+#
+# Per-club thresholds come from two sources:
+#   * The 7-iron and pitching wedge are TrackMan-VALIDATED on the 6/15 session
+#     (mount tilt 10.5 deg, angle offset 1.5 deg) and are pinned as explicit
+#     overrides in _VALIDATED_TIER_CONFIG (Tier-1 MAE 7i 0.68 / PW 0.39).
+#   * Every other club is DERIVED from its published tour-average launch
+#     (_TOUR_LAUNCH_DEG) via _derive_tier_config(). The derived values are
+#     physically reasonable and monotonic but NOT yet measured against ground
+#     truth — replace a club with a validated override as TrackMan data arrives.
+# Only UNKNOWN / no-club returns None, so the caller falls back to geometry.
 
 _TIER_MAXSEP_MIN_DEG = 9.0
 _TIER_NVAL_MIN = 2
@@ -135,20 +142,83 @@ TIER1_CONFIDENCE = 0.85
 # hard-rejected by the server and never displayed.
 TIER2_CONFIDENCE = 0.65
 
+# Published TrackMan PGA-tour average launch angles (deg) per club: woods launch
+# low, irons climb, wedges highest. Values for clubs TrackMan doesn't publish a
+# tour stat for (woods past 3w, hybrids, GW/SW/LW) are interpolated along that
+# trend. Used to DERIVE tier thresholds for clubs without a validated override;
+# the 7i/PW entries are informational (their configs are pinned below). UNKNOWN
+# is intentionally absent -> _tier_config_for returns None -> geometry fallback.
+_TOUR_LAUNCH_DEG: "dict[ClubType, float]" = {
+    ClubType.DRIVER: 10.4,
+    ClubType.WOOD_3: 9.3,
+    ClubType.WOOD_5: 9.7,
+    ClubType.WOOD_7: 11.2,
+    ClubType.HYBRID_3: 10.2,
+    ClubType.HYBRID_5: 11.6,
+    ClubType.HYBRID_7: 13.0,
+    ClubType.HYBRID_9: 15.0,
+    ClubType.IRON_2: 9.8,
+    ClubType.IRON_3: 10.4,
+    ClubType.IRON_4: 11.0,
+    ClubType.IRON_5: 12.1,
+    ClubType.IRON_6: 14.1,
+    ClubType.IRON_7: 16.3,
+    ClubType.IRON_8: 18.1,
+    ClubType.IRON_9: 20.4,
+    ClubType.PW: 24.2,
+    ClubType.GW: 27.0,
+    ClubType.SW: 30.0,
+    ClubType.LW: 33.0,
+}
+
+# Coefficients for deriving an un-validated club's thresholds from its tour
+# average. Chosen so the formula reproduces the 7-iron's validated config
+# exactly (gate 9 / far_el 7 / boost 4 at 16.3 deg), giving a smooth iron-set
+# ramp. (The pitching wedge's validated config is steeper than this trend, which
+# is why it stays an explicit override rather than being derived.)
+_GATE_MARGIN_DEG = 7.3  # gate_maxel = tour_avg - margin (trust fit if seen within margin)
+_FAR_EL_GATE_FRACTION = 0.43  # far_el_gate = fraction * tour_avg (below it -> corrupted-low)
+_BOOST_GAP_FRACTION = 0.43  # boost = fraction * (tour_avg - far_el_gate)
+
 
 @dataclass
 class _TierClubConfig:
-    """Per-club tier thresholds (calibrated; see module note)."""
+    """Per-club tier thresholds (validated override or tour-derived)."""
 
-    gate_maxel_deg: float  # Tier-1 max-elevation gate (= tour-median launch - 8)
+    gate_maxel_deg: float  # Tier-1 max-elevation gate
     far_el_gate_deg: float  # below this far_el, a Tier-2 shot reads corrupted-low
-    boost_deg: float  # additive boost lifting a corrupted-low shot to tour average
+    boost_deg: float  # additive boost lifting a corrupted-low shot toward tour average
 
 
-_TIER_CONFIG: "dict[ClubType, _TierClubConfig]" = {
+# TrackMan-validated overrides (6/15 session). Pinned, never derived.
+_VALIDATED_TIER_CONFIG: "dict[ClubType, _TierClubConfig]" = {
     ClubType.IRON_7: _TierClubConfig(gate_maxel_deg=9.0, far_el_gate_deg=7.0, boost_deg=4.0),
     ClubType.PW: _TierClubConfig(gate_maxel_deg=14.0, far_el_gate_deg=9.5, boost_deg=8.0),
 }
+
+
+def _derive_tier_config(tour_avg_deg: float) -> _TierClubConfig:
+    """Derive tier thresholds for a club from its tour-average launch (deg)."""
+    far_el_gate = _FAR_EL_GATE_FRACTION * tour_avg_deg
+    return _TierClubConfig(
+        gate_maxel_deg=tour_avg_deg - _GATE_MARGIN_DEG,
+        far_el_gate_deg=far_el_gate,
+        boost_deg=_BOOST_GAP_FRACTION * (tour_avg_deg - far_el_gate),
+    )
+
+
+def _tier_config_for(club: "ClubType | None") -> "_TierClubConfig | None":
+    """Tier thresholds for a club: validated override first, else tour-derived,
+    else None (UNKNOWN / no club) so the caller falls back to geometry."""
+    if club is None:
+        return None
+    validated = _VALIDATED_TIER_CONFIG.get(club)
+    if validated is not None:
+        return validated
+    tour_avg = _TOUR_LAUNCH_DEG.get(club)
+    if tour_avg is None:
+        return None
+    return _derive_tier_config(tour_avg)
 
 
 @dataclass
@@ -170,10 +240,10 @@ def classify_two_ray_tier(
     la_single_frame_deg, n_frames_valid, frames[el_deg/el_image_deg]).
     ``fallback_angle_deg`` is two_ray's primary estimate, used when neither the
     position nor single-frame fit is available. Returns None when the club is
-    not characterized — the caller should then fall back to the geometry
-    estimator.
+    not characterized (UNKNOWN / no club) — the caller should then fall back to
+    the geometry estimator.
     """
-    cfg = _TIER_CONFIG.get(club)
+    cfg = _tier_config_for(club)
     if cfg is None:
         return None
 

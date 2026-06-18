@@ -20,6 +20,10 @@ from openflight.kld7.two_ray import (
     SAMPLES,
     TIER1_CONFIDENCE,
     TIER2_CONFIDENCE,
+    _derive_tier_config,
+    _tier_config_for,
+    _TOUR_LAUNCH_DEG,
+    _VALIDATED_TIER_CONFIG,
     classify_two_ray_tier,
     estimate_two_ray,
     two_ray_fit,
@@ -258,13 +262,14 @@ def _diag(pos=None, single=None, nval=0, maxel=0.0, maxsep=0.0):
 
 
 class TestTwoRayTierClassifier:
-    """The tour-anchored 2-tier decision on top of two_ray (gates 7i:9 / PW:14,
-    far_el boost 7i:+4<7 / PW:+8<9.5)."""
+    """The tour-anchored 2-tier decision on top of two_ray. The 7i/PW gates
+    (7i:9 / PW:14) and far_el boosts (7i:+4<7 / PW:+8<9.5) are validated
+    overrides; every other real club is tour-derived (see _tier_config_for)."""
 
-    def test_uncharacterized_club_returns_none(self):
-        # Driver / no club -> None so the caller falls back to geometry.
+    def test_unknown_club_returns_none(self):
+        # UNKNOWN / no club -> None so the caller falls back to geometry.
         d = _diag(pos=15.0, nval=3, maxel=11.0, maxsep=11.0)
-        assert classify_two_ray_tier(d, 14.0, ClubType.DRIVER) is None
+        assert classify_two_ray_tier(d, 14.0, ClubType.UNKNOWN) is None
         assert classify_two_ray_tier(d, 14.0, None) is None
 
     def test_tier1_clean_gate_trusts_position(self):
@@ -317,3 +322,62 @@ class TestTwoRayTierClassifier:
         pw = classify_two_ray_tier(d, 16.0, ClubType.PW)
         assert pw.tier == 2 and pw.boosted is True
         assert pw.launch_angle_deg == pytest.approx(24.0)  # 16 + 8
+
+    # --- all-club coverage: validated overrides + tour-derived configs -------
+
+    def test_validated_overrides_pinned(self):
+        # 7i/PW must use the hand-tuned values, NOT the derived formula, so the
+        # TrackMan-validated Tier-1 MAE is preserved.
+        seven = _VALIDATED_TIER_CONFIG[ClubType.IRON_7]
+        assert (seven.gate_maxel_deg, seven.far_el_gate_deg, seven.boost_deg) == (9.0, 7.0, 4.0)
+        pw = _VALIDATED_TIER_CONFIG[ClubType.PW]
+        assert (pw.gate_maxel_deg, pw.far_el_gate_deg, pw.boost_deg) == (14.0, 9.5, 8.0)
+        # _tier_config_for returns the override, not a derived config.
+        assert _tier_config_for(ClubType.IRON_7) is seven
+        assert _tier_config_for(ClubType.PW) is pw
+
+    def test_every_real_club_characterized(self):
+        # Every club except UNKNOWN now has a tier config (full enable); UNKNOWN
+        # and None fall through to geometry.
+        for club in ClubType:
+            cfg = _tier_config_for(club)
+            if club is ClubType.UNKNOWN:
+                assert cfg is None
+            else:
+                assert cfg is not None, club
+        assert _tier_config_for(None) is None
+
+    def test_derive_formula_reproduces_seven_iron(self):
+        # The derivation coefficients are seeded to land on the 7i validated
+        # config at its tour-average launch (16.3 deg).
+        derived = _derive_tier_config(_TOUR_LAUNCH_DEG[ClubType.IRON_7])
+        assert derived.gate_maxel_deg == pytest.approx(9.0, abs=0.05)
+        assert derived.far_el_gate_deg == pytest.approx(7.0, abs=0.05)
+        assert derived.boost_deg == pytest.approx(4.0, abs=0.05)
+
+    def test_derived_gate_monotonic_in_tour_launch(self):
+        # Higher-launching clubs get a higher trust gate / far_el / boost.
+        low = _derive_tier_config(11.0)  # ~4-iron
+        high = _derive_tier_config(20.4)  # ~9-iron
+        assert high.gate_maxel_deg > low.gate_maxel_deg
+        assert high.far_el_gate_deg > low.far_el_gate_deg
+        assert high.boost_deg > low.boost_deg
+
+    def test_derived_club_tier1_clean_gate(self):
+        # A previously-uncharacterized club (driver) now runs two_ray: a clean
+        # gate trusts the position fit (Tier-1), it does NOT return None.
+        d = _diag(pos=12.0, nval=3, maxel=8.0, maxsep=11.0)  # maxel >> driver gate 3.1
+        r = classify_two_ray_tier(d, 11.0, ClubType.DRIVER)
+        assert r is not None and r.tier == 1 and r.boosted is False
+        assert r.launch_angle_deg == 12.0
+        assert r.confidence == TIER1_CONFIDENCE
+
+    def test_derived_club_tier2_corrupted_low_boosted(self):
+        # 5-iron reads corrupted-low (maxel below its derived far_el ~5.2) ->
+        # Tier-2 with a derived boost toward its tour average.
+        cfg = _tier_config_for(ClubType.IRON_5)
+        d = _diag(pos=None, single=8.0, nval=1, maxel=cfg.far_el_gate_deg - 1.0)
+        r = classify_two_ray_tier(d, 8.0, ClubType.IRON_5)
+        assert r.tier == 2 and r.boosted is True
+        assert r.launch_angle_deg == pytest.approx(8.0 + cfg.boost_deg)
+        assert r.confidence == TIER2_CONFIDENCE
