@@ -614,6 +614,25 @@ def _fit_position_la(
     return math.degrees(math.atan(slope))
 
 
+def _net_slant_ft(net_distance_ft: float, distance_ft: float, ball_above_radar_ft: float) -> float:
+    """Slant range (ft) from the radar to a ball at the net, at nominal launch."""
+    la = math.radians(DRIFT_NOMINAL_LA_DEG)
+    return math.hypot(
+        net_distance_ft + distance_ft, net_distance_ft * math.tan(la) + ball_above_radar_ft
+    )
+
+
+def _expected_slant_ft(
+    t_s: float, v_fts: float, distance_ft: float, ball_above_radar_ft: float
+) -> float:
+    """Ballistic slant range (ft) at flight time t_s, nominal launch. Used only to
+    pick the FSK wrap count when de-aliasing (needs ~half-wrap accuracy)."""
+    la = math.radians(DRIFT_NOMINAL_LA_DEG)
+    bx = v_fts * math.cos(la) * t_s
+    by = v_fts * math.sin(la) * t_s - 0.5 * G_FT_S2 * t_s * t_s
+    return math.hypot(bx + distance_ft, by + ball_above_radar_ft)
+
+
 def estimate_two_ray(
     frames: list[dict],
     impact_timestamp: float | None,
@@ -637,10 +656,25 @@ def estimate_two_ray(
 
     if impact_timestamp is None:
         return _refuse("no_impact_timestamp", diag)
-    # Flight cap: net arrival or the FSK range wrap, whichever is sooner
+    # Flight window + range band. Default: cap at the net or the FSK range wrap,
+    # whichever is sooner, and gate ranges to RANGE_BAND_FT. When the net sits
+    # BEYOND the wrap (net_slant > unambiguous), de-alias instead: extend the
+    # window to the net and unwrap wrapped far-flight frames (below). Nets at or
+    # inside the wrap take the original path unchanged (dealias=False).
     v_fts = ball_speed_mph * MPH_TO_FTS
-    wrap_flight_ft = range_m * M_TO_FT - distance_ft
-    cap_ft = min(net_distance_ft, wrap_flight_ft) if net_distance_ft else wrap_flight_ft
+    unambiguous_ft = range_m * M_TO_FT
+    wrap_flight_ft = unambiguous_ft - distance_ft
+    net_slant_ft = (
+        _net_slant_ft(net_distance_ft, distance_ft, ball_above_radar_ft)
+        if net_distance_ft
+        else None
+    )
+    dealias = net_slant_ft is not None and net_slant_ft > unambiguous_ft
+    band_hi = net_slant_ft if dealias else RANGE_BAND_FT[1]
+    if dealias:
+        cap_ft = net_distance_ft
+    else:
+        cap_ft = min(net_distance_ft, wrap_flight_ft) if net_distance_ft else wrap_flight_ft
     t_cap_ms = 1000.0 * cap_ft / max(v_fts * math.cos(math.radians(DRIFT_NOMINAL_LA_DEG)), 1.0)
 
     demods: list[FrameDemod] = []
@@ -685,6 +719,25 @@ def estimate_two_ray(
     if not TAU_RANGE_MS[0] <= tau_ms <= TAU_RANGE_MS[1]:
         return _refuse("tau_implausible", diag)
 
+    # De-alias wrapped far-flight frames (far nets only): add FSK wrap counts to
+    # match the ballistic range, never past the net. No-op when dealias is False,
+    # so nets at/inside the wrap are unaffected.
+    diag["dealias"] = dealias
+    if dealias:
+        n_unwrapped = 0
+        for d in demods:
+            if math.isnan(d.range_ft):
+                continue
+            t_s = (d.t_center_ms + tau_ms) / 1000.0
+            if t_s <= 0.0:
+                continue
+            expected = _expected_slant_ft(t_s, v_fts, distance_ft, ball_above_radar_ft)
+            k = max(0, int(round((expected - d.range_ft) / unambiguous_ft)))
+            if k and d.range_ft + k * unambiguous_ft <= band_hi + 1.0:
+                d.range_ft += k * unambiguous_ft
+                n_unwrapped += 1
+        diag["n_frames_unwrapped"] = n_unwrapped
+
     valid = [d for d in demods if d.valid and 0.0 <= d.t_center_ms + tau_ms <= t_cap_ms + 10.0]
     diag["n_frames_valid"] = len(valid)
     diag["frames"] = [
@@ -707,7 +760,7 @@ def estimate_two_ray(
         if (
             d.resid <= 0.08
             and not math.isnan(d.range_ft)
-            and RANGE_BAND_FT[0] <= d.range_ft <= RANGE_BAND_FT[1]
+            and RANGE_BAND_FT[0] <= d.range_ft <= band_hi
         ):
             el = math.radians(d.el_ball_deg)
             bx = d.range_ft * math.cos(el) - distance_ft
@@ -738,7 +791,7 @@ def estimate_two_ray(
     pos_idx = [
         i
         for i, d in enumerate(valid)
-        if not math.isnan(d.range_ft) and RANGE_BAND_FT[0] <= d.range_ft <= RANGE_BAND_FT[1]
+        if not math.isnan(d.range_ft) and RANGE_BAND_FT[0] <= d.range_ft <= band_hi
     ]
     la_pos = float("nan")
     if pos_idx:

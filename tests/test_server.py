@@ -369,6 +369,7 @@ class TestKLD7Initialization:
             "vertical_estimator": "naive",
             "mount_tilt_deg": 18.0,
             "ball_distance_ft": 5.5,
+            "vertical_flight_window_net_distance_ft": 10.0,
         }
 
     def test_init_kld7_defaults_to_legacy_vertical_estimator(self, monkeypatch):

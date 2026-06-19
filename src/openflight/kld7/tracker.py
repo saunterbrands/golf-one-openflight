@@ -12,7 +12,7 @@ from typing import Optional
 
 from ..launch_monitor import ClubType
 from ..serial_latency import log_usb_serial_latency_timer
-from .radc import RADC_PAYLOAD_BYTES
+from .radc import RADC_PAYLOAD_BYTES, VERTICAL_FLIGHT_WINDOW_NET_DISTANCE_FT
 from .types import KLD7Angle, KLD7Frame
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,7 @@ class KLD7Tracker:
     vertical_estimator = "naive"
     mount_tilt_deg = 18.0
     ball_distance_ft = 5.5
+    vertical_flight_window_net_distance_ft = VERTICAL_FLIGHT_WINDOW_NET_DISTANCE_FT
 
     def __init__(
         self,
@@ -162,6 +163,7 @@ class KLD7Tracker:
         vertical_estimator: str = "naive",
         mount_tilt_deg: float = 18.0,
         ball_distance_ft: float = 5.5,
+        vertical_flight_window_net_distance_ft: float = VERTICAL_FLIGHT_WINDOW_NET_DISTANCE_FT,
     ):
         self.port = port
         self.range_m = range_m
@@ -185,6 +187,7 @@ class KLD7Tracker:
         self.vertical_estimator = vertical_estimator
         self.mount_tilt_deg = mount_tilt_deg
         self.ball_distance_ft = ball_distance_ft
+        self.vertical_flight_window_net_distance_ft = vertical_flight_window_net_distance_ft
         self.max_buffer_frames = int(34 * buffer_seconds)
 
         self._radar = None
@@ -655,6 +658,7 @@ class KLD7Tracker:
                 impact_timestamp=impact_ts_for_rules,
                 mount_deg=self.mount_tilt_deg,
                 distance_ft=self.ball_distance_ft,
+                vertical_flight_window_net_distance_ft=self.vertical_flight_window_net_distance_ft,
                 club=club,
             )
             if results:

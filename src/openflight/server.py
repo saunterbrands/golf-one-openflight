@@ -978,6 +978,7 @@ def init_kld7(
     vertical_estimator="naive",
     mount_tilt_deg=18.0,
     ball_distance_ft=5.5,
+    vertical_flight_window_net_distance_ft=10.0,
 ) -> bool:
     """Initialize a single K-LD7 angle radar tracker.
 
@@ -1009,6 +1010,7 @@ def init_kld7(
             vertical_estimator=vertical_estimator,
             mount_tilt_deg=mount_tilt_deg,
             ball_distance_ft=ball_distance_ft,
+            vertical_flight_window_net_distance_ft=vertical_flight_window_net_distance_ft,
         )
         if tracker.connect():
             tracker.start()
@@ -2674,6 +2676,18 @@ def main():
         ),
     )
     parser.add_argument(
+        "--kld7-net-distance",
+        dest="kld7_net_distance",
+        type=float,
+        default=10.0,
+        help=(
+            "Ball-to-net/screen distance in feet (two_ray). For nets beyond the "
+            "~11ft FSK range wrap, far-flight frames are de-aliased and kept "
+            "instead of dropped (default: 10.0; nets at/inside the wrap are "
+            "unaffected)."
+        ),
+    )
+    parser.add_argument(
         "--kld7-radar-height-inches",
         dest="kld7_radar_height_inches",
         type=float,
@@ -2880,6 +2894,7 @@ def main():
             vertical_estimator=args.kld7_vertical_estimator,
             mount_tilt_deg=args.kld7_mount_tilt,
             ball_distance_ft=args.kld7_ball_distance,
+            vertical_flight_window_net_distance_ft=args.kld7_net_distance,
             **kld7_radc_tuning_kwargs,
         ):
             offset_str = (

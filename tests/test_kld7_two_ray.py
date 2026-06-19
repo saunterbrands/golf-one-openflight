@@ -14,6 +14,7 @@ import pytest
 
 from openflight.kld7.radc import WAVELENGTH_M, extract_launch_angle
 from openflight.kld7.two_ray import (
+    _TOUR_LAUNCH_DEG,
     ACQ_MS,
     MPH_TO_FTS,
     SAMPLE_DT_MS,
@@ -21,8 +22,8 @@ from openflight.kld7.two_ray import (
     TIER1_CONFIDENCE,
     TIER2_CONFIDENCE,
     _derive_tier_config,
+    _net_slant_ft,
     _tier_config_for,
-    _TOUR_LAUNCH_DEG,
     classify_two_ray_tier,
     estimate_two_ray,
     two_ray_fit,
@@ -126,6 +127,28 @@ def _frames_for_shot(la_deg: float, speed_mph: float, impact_ts: float) -> list[
     return frames
 
 
+def _far_flight_frames(la_deg: float, speed_mph: float, impact_ts: float) -> list[dict]:
+    """Like _frames_for_shot but extends past the FSK range wrap.
+
+    At 100 mph the synthetic ball's slant range crosses the 16.4 ft
+    unambiguous range near 80 ms, so the 100/125/150 ms frames carry a
+    WRAPPED F1B range phase (the payload models the wrap exactly). Early
+    frames stay un-wrapped to anchor tau, exactly as a real far-net shot.
+    """
+    frames = [
+        {"timestamp": impact_ts - 0.40 + 0.0287 * i, "radc": make_quiet_payload(seed=i)}
+        for i in range(4)
+    ]
+    for k, t_ms in enumerate((30.0, 55.0, 75.0, 100.0, 125.0, 150.0)):
+        frames.append(
+            {
+                "timestamp": impact_ts + t_ms / 1000.0,
+                "radc": make_two_ray_payload(t_ms, la_deg, speed_mph, rho=0.25, seed=k),
+            }
+        )
+    return frames
+
+
 class TestTwoRayFit:
     def test_recovers_ball_phase_and_rho(self):
         delta_b, delta_i, rho, chi_dot = 0.9, -0.5, 0.6, 0.7
@@ -196,6 +219,88 @@ class TestEstimateTwoRay:
         )
         assert est.launch_angle_deg is None
         assert est.refusal_reason == "no_range_track"
+
+
+class TestDealias:
+    """Far-net de-aliasing: unwrap frames whose range wrapped past the FSK
+    unambiguous range (16.4 ft at the 5 m setting), gated so that nets at or
+    inside the wrap take the original capped path untouched."""
+
+    SPEED = 100.0
+    IMPACT = 1000.0
+    LA = 18.0
+
+    def _est(self, frames, net):
+        return estimate_two_ray(
+            frames,
+            self.IMPACT,
+            self.SPEED,
+            MOUNT_DEG,
+            OFFSET_DEG,
+            DISTANCE_FT,
+            BALL_ABOVE_RADAR_FT,
+            net_distance_ft=net,
+        )
+
+    def test_net_slant_geometry(self):
+        # Slant range to a ball at the net at nominal launch; monotonic in net.
+        assert _net_slant_ft(10.0, DISTANCE_FT, BALL_ABOVE_RADAR_FT) == pytest.approx(
+            15.32, abs=0.1
+        )
+        s10 = _net_slant_ft(10.0, DISTANCE_FT, BALL_ABOVE_RADAR_FT)
+        s12 = _net_slant_ft(12.0, DISTANCE_FT, BALL_ABOVE_RADAR_FT)
+        s25 = _net_slant_ft(25.0, DISTANCE_FT, BALL_ABOVE_RADAR_FT)
+        assert s10 < s12 < s25
+
+    def test_default_net_does_not_dealias(self):
+        # Default 10 ft net (slant 15.3 < 16.4 wrap): original capped path.
+        est = self._est(_frames_for_shot(self.LA, self.SPEED, self.IMPACT), 10.0)
+        assert est.refusal_reason is None, est.diagnostics
+        assert est.diagnostics["dealias"] is False
+        assert "n_frames_unwrapped" not in est.diagnostics
+        assert est.launch_angle_deg == pytest.approx(self.LA, abs=2.5)
+
+    def test_no_net_does_not_dealias(self):
+        # net_distance_ft=None disables the net entirely: never de-aliases.
+        est = self._est(_frames_for_shot(self.LA, self.SPEED, self.IMPACT), None)
+        assert est.refusal_reason is None, est.diagnostics
+        assert est.diagnostics["dealias"] is False
+        assert "n_frames_unwrapped" not in est.diagnostics
+
+    def test_gate_flips_at_unambiguous_range(self):
+        # The gate is exactly net_slant > unambiguous (16.40 ft). 11 ft net ->
+        # slant 16.37 (just inside) stays capped; 12 ft -> 17.42 de-aliases.
+        frames = _far_flight_frames(self.LA, self.SPEED, self.IMPACT)
+        assert self._est(frames, 11.0).diagnostics["dealias"] is False
+        assert self._est(frames, 12.0).diagnostics["dealias"] is True
+
+    def test_far_net_unwraps_wrapped_frames(self):
+        # 25 ft net (slant 31 ft) is well past the wrap: the 100/125/150 ms
+        # frames unwrap from <11 ft back onto the real ballistic range.
+        est = self._est(_far_flight_frames(self.LA, self.SPEED, self.IMPACT), 25.0)
+        assert est.refusal_reason is None, est.diagnostics
+        d = est.diagnostics
+        assert d["dealias"] is True
+        assert d["n_frames_unwrapped"] >= 1
+        # At least one frame now sits past a single wrap, but never past the net.
+        net_slant = _net_slant_ft(25.0, DISTANCE_FT, BALL_ABOVE_RADAR_FT)
+        ranges = [f["range_ft"] for f in d["frames"] if f["range_ft"] is not None]
+        assert any(r > RANGE_UNAMB_FT for r in ranges)
+        assert max(ranges) <= net_slant + 1.0
+
+    def test_far_net_recovers_frames_capped_path_loses(self):
+        # The contrast that proves the feature does real work: identical
+        # far-flight frames keep MORE valid frames with the far net than the
+        # wrap-capped (no-net) path, and reach ranges the capped path cannot.
+        frames = _far_flight_frames(self.LA, self.SPEED, self.IMPACT)
+        capped = self._est(frames, None)
+        dealiased = self._est(frames, 25.0)
+        assert capped.diagnostics["dealias"] is False
+        assert dealiased.diagnostics["dealias"] is True
+        assert dealiased.diagnostics["n_frames_valid"] > capped.diagnostics["n_frames_valid"]
+        capped_max = max(f["range_ft"] or 0.0 for f in capped.diagnostics["frames"])
+        dealiased_max = max(f["range_ft"] or 0.0 for f in dealiased.diagnostics["frames"])
+        assert capped_max <= RANGE_UNAMB_FT < dealiased_max
 
 
 class TestExtractLaunchAngleTwoRay:
