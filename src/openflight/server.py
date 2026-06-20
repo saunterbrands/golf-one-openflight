@@ -2676,8 +2676,8 @@ def main():
         ),
     )
     parser.add_argument(
-        "--kld7-net-distance",
-        dest="kld7_net_distance",
+        "--net-distance",
+        dest="net_distance",
         type=float,
         default=10.0,
         help=(
@@ -2894,7 +2894,7 @@ def main():
             vertical_estimator=args.kld7_vertical_estimator,
             mount_tilt_deg=args.kld7_mount_tilt,
             ball_distance_ft=args.kld7_ball_distance,
-            vertical_flight_window_net_distance_ft=args.kld7_net_distance,
+            vertical_flight_window_net_distance_ft=args.net_distance,
             **kld7_radc_tuning_kwargs,
         ):
             offset_str = (
