@@ -615,20 +615,22 @@ frames is the launch angle — confidence 0.85. (Two frames is as good as it get
 so there's no second point to fit a climb. Either way we still want to show the player <i>something</i>, so Tier&nbsp;2
 is a lower-confidence estimate.</p>
 
-<p>Tier&nbsp;2 ships at <b style="color:var(--warn)">confidence 0.65</b> and has two flavors:</p>
+<p>The three outcomes map straight to the UI's confidence dots — <b style="color:var(--ok)">Tier&nbsp;1 → 3 dots</b>
+(0.85), <b style="color:var(--warn)">Tier&nbsp;2 as-measured → 2 dots</b> (0.65), <b style="color:var(--warn)">Tier&nbsp;2
+boosted → 1 dot</b> (0.35) — an honest <i>measured → estimated → corrected</i> gradient. Tier&nbsp;2 has two flavors:</p>
 
 <div class="tiers">
   <div class="tier t2">
     <div class="tag">Tier 2 · as-measured</div>
     <h4>Reading looks plausible</h4>
-    <div class="conf">confidence 0.65 · no boost</div>
+    <div class="conf">confidence 0.65 · 2 dots · no boost</div>
     <p style="font-size:.93rem;margin:0">The ball reached a believable height (<code>maxel</code> is not suspiciously
     low). We show the estimate as-is, just with lower confidence than Tier&nbsp;1.</p>
   </div>
   <div class="tier t2">
     <div class="tag">Tier 2 · boosted</div>
     <h4>Reading looks suppressed</h4>
-    <div class="conf">confidence 0.65 · +boost applied</div>
+    <div class="conf">confidence 0.35 · 1 dot · +boost applied</div>
     <p style="font-size:.93rem;margin:0">Even the ball's <i>peak</i> elevation is low (<code>maxel &lt; 0.43 × tour</code>).
     That's the fingerprint of suppression, so we <b>add a fixed boost</b> toward the club's tour-average launch.</p>
   </div>
@@ -720,7 +722,7 @@ can't yet tell them apart. We keep the boost because, on validated data, it lowe
   <line x1="506" y1="240" x2="620" y2="240" class="edge"/>
   <text x="520" y="232" class="elbl">yes</text>
   <rect x="620" y="217" width="160" height="46" class="node" fill="rgba(251,191,36,.10)" stroke="var(--warn)"/>
-  <text x="700" y="236" text-anchor="middle" class="ntext" style="fill:var(--warn)">TIER 2 · 0.65</text>
+  <text x="700" y="236" text-anchor="middle" class="ntext" style="fill:var(--warn)">TIER 2 · 0.35</text>
   <text x="700" y="252" text-anchor="middle" class="nsub">+ boost → tour avg</text>
   <!-- no -> tier2 plain -->
   <line x1="400" y1="282" x2="400" y2="310" class="edge"/>
@@ -735,11 +737,12 @@ tour-derived, so two_ray runs on all of them.</figcaption>
 </figure>
 
 <h3>One more gate: the screen</h3>
-<p>The server has the final say on what's shown. It reads the confidence number and sorts it into display
-bands — roughly <b>strong ≥ 0.80</b>, <b>medium ≥ 0.68</b>, <b>weak ≥ 0.65</b>. Anything <b>below 0.65 is hard-rejected</b>
-and never displayed as a radar measurement; instead the player sees a launch angle from a simple
-<b>ball-speed-and-club formula</b> (lowest confidence of all). That's why Tier&nbsp;2 sits exactly at 0.65 — it's the
-floor for "still worth showing."</p>
+<p>The server has the final say on what's <i>shown</i>, checking the confidence against a display floor of
+<b>0.65</b>. <b>Tier&nbsp;1 (0.85)</b> and <b>as-measured Tier&nbsp;2 (0.65)</b> clear it and display as radar
+measurements. A <b>boosted Tier&nbsp;2 sits at 0.35 — below the floor on purpose</b>: a boosted shot is barely a
+measurement, so in normal play the server shows the simple <b>ball-speed-and-club formula</b> instead. A
+<b>test mode</b> can bypass the floor to surface every shot the radar catches — that's when the boosted reading
+appears as its 1-dot self.</p>
 
 <!-- ============================================================= -->
 <h2 id="honest"><span class="num">9</span>What's proven vs. what's assumed</h2>
@@ -795,7 +798,7 @@ floor for "still worth showing."</p>
     <tr><td><b>la_position</b></td><td>Timing-free launch angle from fitting a line through the tee and the measured (range, elevation) points. Tier-1's output.</td></tr>
     <tr><td><b>Specular vs. diffuse</b></td><td>A mirror-like (smooth/hard) reflection vs. a scattered (rough/grassy) one. Our explanation for why indoor separates and outdoor doesn't.</td></tr>
     <tr><td><b>FSK range wrap</b></td><td>The radar's distance reading resets every 16.4 ft (at the 5 m setting), so far balls fold back to small values until "de-aliased."</td></tr>
-    <tr><td><b>Tier 1 / Tier 2</b></td><td>Trusted measurement (conf 0.85) vs. lower-confidence estimate (conf 0.65). Tier-2 may be boosted toward tour average if it reads suppressed.</td></tr>
+    <tr><td><b>Tier 1 / Tier 2</b></td><td>Trusted measurement (0.85 → 3 dots) vs. lower-confidence estimate: Tier-2 is 0.65 (2 dots) as-measured, or 0.35 (1 dot) when boosted toward tour average because it reads suppressed.</td></tr>
   </tbody>
 </table>
 
