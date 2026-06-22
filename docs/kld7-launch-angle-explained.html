@@ -601,7 +601,7 @@ can't yet tell them apart. We keep the boost because, on validated data, it lowe
 <p class="section-intro">Here's how a single shot travels from raw frames to the number on screen.</p>
 
 <figure>
-<svg viewBox="0 0 800 470" role="img" aria-label="End to end decision flow">
+<svg viewBox="0 0 800 380" role="img" aria-label="End to end decision flow">
   <defs>
     <marker id="fa" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 z" fill="var(--cream-muted)"/></marker>
   </defs>
@@ -616,51 +616,40 @@ can't yet tell them apart. We keep the boost because, on validated data, it lowe
   <rect x="300" y="14" width="200" height="44" class="node" fill="var(--elev)" stroke="var(--info)"/>
   <text x="400" y="33" text-anchor="middle" class="ntext">two-ray estimate</text>
   <text x="400" y="49" text-anchor="middle" class="nsub">ball elevation per frame</text>
-  <line x1="400" y1="58" x2="400" y2="84" class="edge"/>
-  <!-- club known? -->
-  <polygon points="400,86 486,124 400,162 314,124" fill="var(--card)" stroke="var(--gold-dim)" stroke-width="1.5"/>
-  <text x="400" y="128" text-anchor="middle" class="ntext">club known?</text>
-  <!-- no -> geometry -->
-  <line x1="486" y1="124" x2="620" y2="124" class="edge"/>
-  <text x="500" y="116" class="elbl">no</text>
-  <rect x="620" y="102" width="160" height="44" class="node" fill="var(--elev)" stroke="var(--cream-muted)"/>
-  <text x="700" y="121" text-anchor="middle" class="ntext">geometry fallback</text>
-  <text x="700" y="137" text-anchor="middle" class="nsub">(other estimator)</text>
-  <!-- yes down to tier1 gate -->
-  <line x1="400" y1="162" x2="400" y2="188" class="edge"/>
-  <text x="412" y="180" class="elbl">yes</text>
-  <polygon points="400,190 506,232 400,274 294,232" fill="var(--card)" stroke="var(--ok)" stroke-width="1.6"/>
-  <text x="400" y="228" text-anchor="middle" class="ntext">Tier-1 gate?</text>
-  <text x="400" y="245" text-anchor="middle" class="nsub">nval≥2 · maxsep≥9</text>
-  <text x="400" y="259" text-anchor="middle" class="nsub">maxel ok · pos fit</text>
+  <line x1="400" y1="58" x2="400" y2="86" class="edge"/>
+  <!-- Tier-1 gate? -->
+  <polygon points="400,86 506,128 400,170 294,128" fill="var(--card)" stroke="var(--ok)" stroke-width="1.6"/>
+  <text x="400" y="124" text-anchor="middle" class="ntext">Tier-1 gate?</text>
+  <text x="400" y="141" text-anchor="middle" class="nsub">nval≥2 · maxsep≥9</text>
+  <text x="400" y="155" text-anchor="middle" class="nsub">maxel ok · pos fit</text>
   <!-- yes -> tier1 -->
-  <line x1="506" y1="232" x2="620" y2="232" class="edge"/>
-  <text x="520" y="224" class="elbl">yes</text>
-  <rect x="620" y="210" width="160" height="46" class="node" fill="rgba(74,222,128,.10)" stroke="var(--ok)"/>
-  <text x="700" y="229" text-anchor="middle" class="ntext" style="fill:var(--ok)">TIER 1 · 0.85</text>
-  <text x="700" y="245" text-anchor="middle" class="nsub">"measured"</text>
+  <line x1="506" y1="128" x2="620" y2="128" class="edge"/>
+  <text x="520" y="120" class="elbl">yes</text>
+  <rect x="620" y="105" width="160" height="46" class="node" fill="rgba(74,222,128,.10)" stroke="var(--ok)"/>
+  <text x="700" y="124" text-anchor="middle" class="ntext" style="fill:var(--ok)">TIER 1 · 0.85</text>
+  <text x="700" y="140" text-anchor="middle" class="nsub">"measured"</text>
   <!-- no down to suppressed? -->
-  <line x1="400" y1="274" x2="400" y2="300" class="edge"/>
-  <text x="412" y="292" class="elbl">no</text>
-  <polygon points="400,302 506,342 400,382 294,342" fill="var(--card)" stroke="var(--warn)" stroke-width="1.6"/>
-  <text x="400" y="338" text-anchor="middle" class="ntext">reads suppressed?</text>
-  <text x="400" y="355" text-anchor="middle" class="nsub">maxel &lt; 0.43 × tour</text>
+  <line x1="400" y1="170" x2="400" y2="198" class="edge"/>
+  <text x="412" y="190" class="elbl">no</text>
+  <polygon points="400,198 506,240 400,282 294,240" fill="var(--card)" stroke="var(--warn)" stroke-width="1.6"/>
+  <text x="400" y="236" text-anchor="middle" class="ntext">reads suppressed?</text>
+  <text x="400" y="253" text-anchor="middle" class="nsub">maxel &lt; 0.43 × tour</text>
   <!-- yes -> boosted -->
-  <line x1="506" y1="342" x2="620" y2="342" class="edge"/>
-  <text x="520" y="334" class="elbl">yes</text>
-  <rect x="620" y="320" width="160" height="46" class="node" fill="rgba(251,191,36,.10)" stroke="var(--warn)"/>
-  <text x="700" y="339" text-anchor="middle" class="ntext" style="fill:var(--warn)">TIER 2 · 0.65</text>
-  <text x="700" y="355" text-anchor="middle" class="nsub">+ boost → tour avg</text>
+  <line x1="506" y1="240" x2="620" y2="240" class="edge"/>
+  <text x="520" y="232" class="elbl">yes</text>
+  <rect x="620" y="217" width="160" height="46" class="node" fill="rgba(251,191,36,.10)" stroke="var(--warn)"/>
+  <text x="700" y="236" text-anchor="middle" class="ntext" style="fill:var(--warn)">TIER 2 · 0.65</text>
+  <text x="700" y="252" text-anchor="middle" class="nsub">+ boost → tour avg</text>
   <!-- no -> tier2 plain -->
-  <line x1="400" y1="382" x2="400" y2="408" class="edge"/>
-  <text x="412" y="400" class="elbl">no</text>
-  <rect x="320" y="410" width="160" height="46" class="node" fill="rgba(251,191,36,.06)" stroke="var(--warn)"/>
-  <text x="400" y="429" text-anchor="middle" class="ntext" style="fill:var(--warn)">TIER 2 · 0.65</text>
-  <text x="400" y="445" text-anchor="middle" class="nsub">as-measured</text>
+  <line x1="400" y1="282" x2="400" y2="310" class="edge"/>
+  <text x="412" y="302" class="elbl">no</text>
+  <rect x="320" y="312" width="160" height="46" class="node" fill="rgba(251,191,36,.06)" stroke="var(--warn)"/>
+  <text x="400" y="331" text-anchor="middle" class="ntext" style="fill:var(--warn)">TIER 2 · 0.65</text>
+  <text x="400" y="347" text-anchor="middle" class="nsub">as-measured</text>
 </svg>
 <figcaption><b>Tier first, boost second.</b> A clean shot is a measurement (Tier&nbsp;1). Everything else is a
-lower-confidence estimate (Tier&nbsp;2), boosted only when it carries the suppression fingerprint. An
-unrecognized club skips the whole thing and uses the geometry fallback.</figcaption>
+lower-confidence estimate (Tier&nbsp;2), boosted only when it carries the suppression fingerprint. Every club is
+tour-derived, so two_ray runs on all of them.</figcaption>
 </figure>
 
 <h3>One more gate: the screen</h3>
@@ -686,9 +675,9 @@ floor for "still worth showing."</p>
 <div class="box honest">
   <div class="h"><span class="dot" style="background:var(--info)"></span>Principled, but not yet ground-truthed</div>
   <ul style="margin:6px 0 0">
-    <li><b>Every other club's</b> thresholds are <i>derived</i> from its published tour-average launch using the
-    same formula that reproduces the 7-iron — physically reasonable and monotonic, but only the 7-iron has
-    been checked against TrackMan. Treat the rest as good defaults to refine as data arrives.</li>
+    <li><b>All clubs are tour-derived</b> by one uniform formula (no hand-tuned overrides); the coefficients are
+    seeded so it reproduces the 7-iron's TrackMan-validated config. Only the <b>7-iron</b> has been checked
+    against ground truth, so treat the other 19 as principled defaults to refine as data arrives.</li>
     <li>The <b>pitching wedge</b> in particular measured steeper than the linear trend predicts, so its boost is
     likely a touch low — flagged for a per-club override if it reads flat in practice.</li>
     <li>The <b>specular-vs-diffuse</b> explanation for the outdoor collapse is a working hypothesis, not a
