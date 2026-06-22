@@ -20,6 +20,7 @@ from openflight.kld7.two_ray import (
     SAMPLE_DT_MS,
     SAMPLES,
     TIER1_CONFIDENCE,
+    TIER2_BOOST_CONFIDENCE,
     TIER2_CONFIDENCE,
     _derive_tier_config,
     _net_slant_ft,
@@ -397,13 +398,16 @@ class TestTwoRayTierClassifier:
         r = classify_two_ray_tier(d, 12.0, ClubType.IRON_7)
         assert r.tier == 2 and r.boosted is True
         assert r.launch_angle_deg == pytest.approx(12.0 + cfg.boost_deg)
-        assert r.confidence == TIER2_CONFIDENCE
+        assert r.confidence == TIER2_BOOST_CONFIDENCE
 
     def test_tier2_not_boosted_when_far_el_ok(self):
         # Fails Tier-1 (low maxsep) but far_el fine -> Tier-2, no boost.
         d = _diag(pos=16.0, nval=3, maxel=11.0, maxsep=3.0)
         r = classify_two_ray_tier(d, 16.0, ClubType.IRON_7)
         assert r.tier == 2 and r.boosted is False
+        # No-boost keeps the 0.65 floor (2 dots); boosted drops to 0.35 (1 dot).
+        assert r.confidence == TIER2_CONFIDENCE
+        assert TIER2_BOOST_CONFIDENCE < TIER2_CONFIDENCE
         assert r.launch_angle_deg == 16.0
 
     def test_estimate_falls_back_to_curve_when_no_fits(self):
@@ -490,4 +494,4 @@ class TestTwoRayTierClassifier:
         r = classify_two_ray_tier(d, 8.0, ClubType.IRON_5)
         assert r.tier == 2 and r.boosted is True
         assert r.launch_angle_deg == pytest.approx(8.0 + cfg.boost_deg)
-        assert r.confidence == TIER2_CONFIDENCE
+        assert r.confidence == TIER2_BOOST_CONFIDENCE

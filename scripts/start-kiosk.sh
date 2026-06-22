@@ -278,6 +278,15 @@ error() {
     echo -e "${RED}[OpenFlight]${NC} $1"
 }
 
+# TEST MODE: the two_ray vertical estimator auto-enables the gate bypass, so the
+# UI shows the radar launch angle (and 3/2/1 dots) for every shot it produces.
+# This turns OFF all vertical display guardrails — fine for testing, not for
+# production. Warned loudly so it is never silent.
+if [ "$KLD7_VERTICAL_ESTIMATOR" = "two_ray" ] && [ "$KLD7_BYPASS_GATE" != true ]; then
+    KLD7_BYPASS_GATE=true
+    warn "two_ray estimator → auto-enabling --kld7-bypass-vertical-gate (vertical guardrails OFF)"
+fi
+
 cleanup() {
     log "Shutting down..."
     if [ -n "$SERVER_PID" ]; then

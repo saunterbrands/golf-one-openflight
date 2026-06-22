@@ -141,6 +141,12 @@ TIER1_CONFIDENCE = 0.85
 # "medium"), so this must sit at or above that floor — anything lower is
 # hard-rejected by the server and never displayed.
 TIER2_CONFIDENCE = 0.65
+# A BOOSTED Tier-2 shot is a suppression-correction (a guess), not a measurement,
+# so it reads as 1 dot ("low", < 0.40 in the UI) rather than 2. This sits BELOW the
+# 0.65 server floor, so it only renders with the vertical gate bypassed
+# (--kld7-bypass-vertical-gate, auto-on in two_ray test mode); without the bypass a
+# boosted shot is hard-rejected and falls back to the ball-speed estimate.
+TIER2_BOOST_CONFIDENCE = 0.35
 
 # Published TrackMan PGA-tour average launch angles (deg) per club: woods launch
 # low, irons climb, wedges highest. Values for clubs TrackMan doesn't publish a
@@ -261,7 +267,7 @@ def classify_two_ray_tier(
     # Corrupted-low shots read systematically low -> boost up to the tour average.
     if maxel < cfg.far_el_gate_deg:
         return TierResult(
-            float(est) + cfg.boost_deg, tier=2, confidence=TIER2_CONFIDENCE, boosted=True
+            float(est) + cfg.boost_deg, tier=2, confidence=TIER2_BOOST_CONFIDENCE, boosted=True
         )
     return TierResult(float(est), tier=2, confidence=TIER2_CONFIDENCE, boosted=False)
 
