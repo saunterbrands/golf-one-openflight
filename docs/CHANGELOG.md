@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Opt-in **two-ray multipath vertical launch-angle estimator** for the K-LD7
+  (`--kld7-vertical-estimator two_ray`). Per-frame demodulation separates the
+  ball from its floor reflection to recover true elevation through ground
+  multipath instead of averaging across it. Each shot is graded into a
+  tour-derived Tier-1/Tier-2 confidence (with a tour-average boost for
+  suppressed reads), far-net flights are de-aliased past the FSK range wrap
+  (`--net-distance`), and a `--kld7-bypass-vertical-gate` test mode surfaces
+  the radar angle for every shot the estimator produces. Adds an offline
+  `scripts/analysis/session_shot_report.py` per-shot report and a visual
+  explainer (`docs/kld7-launch-angle-explained.html`). The geometry estimator
+  stays the default — no behavior change unless two_ray is explicitly selected.
+
 ### Fixed
 - K-LD7 tracker: shots could silently lose their launch angle when the
   stream thread appended a frame while the shot path iterated the ring
