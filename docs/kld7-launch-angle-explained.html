@@ -118,7 +118,7 @@
   <div class="t">Contents</div>
   <ol>
     <li><a href="#job">The job &amp; the hardware</a></li>
-    <li><a href="#limits">Four hard limits</a></li>
+    <li><a href="#limits">Three hard limits</a></li>
     <li><a href="#tworay">The core problem: two rays</a></li>
     <li><a href="#method">Why "two-ray" demodulation</a></li>
     <li><a href="#inout">Indoor vs. outdoor</a></li>
@@ -137,9 +137,8 @@ average is about <b>16°</b>; a driver about <b>10°</b>; a wedge can be <b>30°
 degrees and the simulated carry distance is off by yards.</p>
 
 <p>OpenFlight measures it with a <b>K-LD7</b>: a 24&nbsp;GHz <b>FSK Doppler radar</b> the size of a matchbox.
-It sits low, near the tee, <b>aimed up the flight line</b>. As the ball flies away, the radar reads the
-ball's <b>elevation angle</b> (its height in the beam) frame by frame, and the rise of that angle over the
-first few feet tells us the launch angle.</p>
+It sits low, near the tee, <b>aimed up the flight line</b>. Every frame it gives us <b>two independent
+readings</b> of the ball — an <b>angle</b> and a <b>range</b> — and the launch-angle pipeline leans on both.</p>
 
 <figure>
 <svg viewBox="0 0 800 372" role="img" aria-label="Radar setup geometry, drawn to scale">
@@ -195,8 +194,29 @@ The dashed line is the radar's aim (boresight); the ball flies below it through 
 horizontal radar handles left/right aim; this document is only about the <b>vertical</b> launch-angle radar.)</figcaption>
 </figure>
 
+<h3>Reading 1 · the angle — where the ball sits in the beam</h3>
+<p>The radar has <b>two receive antennas</b>; the tiny <b>phase difference</b> between them encodes the ball's
+<b>elevation angle</b> each frame (this is <b>interferometry</b>). Stack those angles over the first few feet and
+the <b>rise</b> of the climb is the launch angle. It's the headline number — and the one a floor reflection
+corrupts (sections&nbsp;2–3).</p>
+
+<h3>Reading 2 · the range — how far the ball is</h3>
+<p>Being an <b>FSK</b> radar, the K-LD7 also reports the ball's <b>distance</b> (slant range) every frame, from
+the phase of a second transmit frequency. Three things make it the quiet workhorse of the whole method:</p>
+<ul>
+  <li><b>It's accurate — and largely multipath-immune.</b> Range is a <i>distance</i> (time-of-flight), which the
+  floor bounce barely shifts; the angle, by contrast, arrives off the floor from a completely different direction
+  and gets wrecked. So the range is the one <b>clean, trustworthy clock</b> in the signal.</li>
+  <li><b>It pins the moment of impact.</b> The ball's range grows steadily as it flies — extend that line back to
+  the tee distance (~5&nbsp;ft) and you've found <b>when impact happened</b>, the timing anchor everything else hangs
+  off. (Range + elevation each frame also fix the ball's actual position, which is what Tier&nbsp;1 fits a line through.)</li>
+  <li><b>It comes in sub-frames.</b> Each ~29&nbsp;ms frame is sliced into about a dozen <b>overlapping short windows</b>,
+  each yielding its own range sample — finer timing than one reading per frame, which sharpens that impact anchor.</li>
+</ul>
+<p>Range has just one catch — it <b>wraps</b> past 16.4&nbsp;ft — which is limit&nbsp;② below.</p>
+
 <!-- ============================================================= -->
-<h2 id="limits"><span class="num">2</span>Four hard limits of the K-LD7</h2>
+<h2 id="limits"><span class="num">2</span>Three hard limits of the K-LD7</h2>
 <p class="section-intro">Everything downstream exists to work around these. None of them is a bug — they're the
 physics of a cheap, short-range radar.</p>
 
@@ -291,13 +311,9 @@ it does, which is why OpenFlight can <i>un-wrap</i> these readings when you tell
 physical net distance lets OpenFlight add the cycle back ("de-aliasing") instead of believing the folded value.</figcaption>
 </figure>
 
-<h3>③ The angle comes from phase, not a picture</h3>
-<p>The radar has two receive antennas. The tiny <b>phase difference</b> between them encodes the
-ball's angle (this is <b>interferometry</b>). It works — but phase is delicate, and as we'll see, a
-floor reflection corrupts exactly this measurement.</p>
-
-<h3>④ The ground is always in the shot</h3>
-<p>This is the big one, and it earns its own section.</p>
+<h3>③ The ground corrupts the angle</h3>
+<p>That delicate interferometric phase — the angle reading from section&nbsp;1 — is exactly what a reflection
+off the floor corrupts. It's the central problem, and it earns the next section.</p>
 
 <!-- ============================================================= -->
 <h2 id="tworay"><span class="num">3</span>The core problem: two rays</h2>
