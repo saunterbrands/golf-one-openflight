@@ -402,6 +402,12 @@ def _select_vertical_radar_launch(kld7_angle, shot: Shot) -> tuple[bool, dict]:
     if not kld7_angle or kld7_angle.vertical_deg is None:
         return False, details
 
+    if _VERTICAL_RADAR_GATE_BYPASS:
+        details["accepted"] = True
+        details["selection_reason"] = "gate_bypassed"
+        details["acceptance_path"] = "bypass"
+        return True, details
+
     radar_angle_deg = kld7_angle.vertical_deg
     plausible, guard_details = radar_launch_is_plausible(
         radar_angle_deg=radar_angle_deg,
@@ -582,6 +588,11 @@ _KLD7_POST_SHOT_CAPTURE_DELAY_S = 0.18
 _MIN_VERTICAL_RADAR_CONFIDENCE = 0.80
 _MIN_VERTICAL_SOFT_RADAR_CONFIDENCE = 0.68
 _MIN_VERTICAL_LOW_CONFIDENCE_RADAR_CONFIDENCE = 0.65
+# Test-mode escape hatch (--kld7-bypass-vertical-gate): when True,
+# _select_vertical_radar_launch accepts ANY vertical radar candidate and skips
+# every guard, so the UI shows the radar's launch angle for every shot the
+# estimator produces. Default False leaves production behavior unchanged.
+_VERTICAL_RADAR_GATE_BYPASS = False
 _VERTICAL_SOFT_ESTIMATE_DELTA_DEG = 4.5
 _VERTICAL_SOFT_MAX_FRAME_COUNT = 40
 _VERTICAL_SOFT_TIGHT_DELTA_FOR_LONG_FRAME_DEG = 2.0
@@ -2698,6 +2709,16 @@ def main():
         ),
     )
     parser.add_argument(
+        "--kld7-bypass-vertical-gate",
+        dest="kld7_bypass_vertical_gate",
+        action="store_true",
+        help=(
+            "TEST MODE: show the radar vertical launch angle for every shot the "
+            "estimator produces, bypassing all display guardrails (plausibility, "
+            "soft-lane, estimator-agreement, confidence floor). Default off."
+        ),
+    )
+    parser.add_argument(
         "--kld7-horizontal",
         action="store_true",
         help="Enable K-LD7 horizontal angle radar (club path)",
@@ -2799,6 +2820,8 @@ def main():
     ball_speed_correction_enabled = args.ball_speed_cosine_correction
     ball_speed_correction_distance_ft = args.kld7_ball_distance
     ball_speed_correction_ball_above_radar_ft = -args.kld7_radar_height_inches / 12.0
+    global _VERTICAL_RADAR_GATE_BYPASS
+    _VERTICAL_RADAR_GATE_BYPASS = args.kld7_bypass_vertical_gate
     global calculated_spin_enabled
     calculated_spin_enabled = args.calculated_spin
     ballistics_enabled = args.ballistics

@@ -2137,3 +2137,33 @@ class TestApplyCalculatedSpin:
         shot = self._shot(la_source="camera")
         assert server_module._apply_calculated_spin(shot) is True
         assert shot.spin_source == "calculated"
+
+
+class TestVerticalGateBypass:
+    """--kld7-bypass-vertical-gate: show the radar angle for every candidate."""
+
+    def _shot(self):
+        return SimpleNamespace(
+            club=ClubType.IRON_7, ball_speed_mph=110.0, club_speed_mph=86.0, spin_rpm=None
+        )
+
+    def test_default_rejects_garbage_low_reading(self):
+        # 0.6 deg for a 7-iron is outside the soft lane -> rejected normally.
+        angle = KLD7Angle(vertical_deg=0.6, confidence=0.65, num_frames=1)
+        accepted, details = server_module._select_vertical_radar_launch(angle, self._shot())
+        assert accepted is False
+        assert details["selection_reason"] == "outside_soft_lane"
+
+    def test_bypass_accepts_anything_with_a_candidate(self, monkeypatch):
+        monkeypatch.setattr(server_module, "_VERTICAL_RADAR_GATE_BYPASS", True)
+        angle = KLD7Angle(vertical_deg=0.6, confidence=0.65, num_frames=1)
+        accepted, details = server_module._select_vertical_radar_launch(angle, self._shot())
+        assert accepted is True
+        assert details["selection_reason"] == "gate_bypassed"
+        assert details["acceptance_path"] == "bypass"
+
+    def test_bypass_still_needs_a_candidate(self, monkeypatch):
+        monkeypatch.setattr(server_module, "_VERTICAL_RADAR_GATE_BYPASS", True)
+        assert server_module._select_vertical_radar_launch(None, self._shot())[0] is False
+        no_angle = KLD7Angle(vertical_deg=None, confidence=0.9, num_frames=2)
+        assert server_module._select_vertical_radar_launch(no_angle, self._shot())[0] is False

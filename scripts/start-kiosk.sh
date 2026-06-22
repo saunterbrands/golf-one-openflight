@@ -32,6 +32,7 @@ KLD7_VERTICAL_ESTIMATOR=""
 KLD7_MOUNT_TILT=""
 KLD7_BALL_DISTANCE=""
 NET_DISTANCE=""
+KLD7_BYPASS_GATE=false
 EXPERIMENTAL_KLD7_RAW_RADC_LOGGING=false
 EXPERIMENTAL_KLD7_RADC_TUNING=false
 EXPERIMENTAL_KLD7_SPEED_TOLERANCE=""
@@ -146,6 +147,10 @@ while [[ $# -gt 0 ]]; do
         --net-distance)
             NET_DISTANCE="$2"
             shift 2
+            ;;
+        --kld7-bypass-vertical-gate)
+            KLD7_BYPASS_GATE=true
+            shift
             ;;
         --kld7-horizontal)
             KLD7_HORIZONTAL=true
@@ -441,6 +446,7 @@ if [ "$KLD7" = true ]; then
     [ -n "$KLD7_MOUNT_TILT" ] && SERVER_CMD="$SERVER_CMD --kld7-mount-tilt $KLD7_MOUNT_TILT"
     [ -n "$KLD7_BALL_DISTANCE" ] && SERVER_CMD="$SERVER_CMD --kld7-ball-distance $KLD7_BALL_DISTANCE"
     [ -n "$NET_DISTANCE" ] && SERVER_CMD="$SERVER_CMD --net-distance $NET_DISTANCE"
+    [ "$KLD7_BYPASS_GATE" = true ] && SERVER_CMD="$SERVER_CMD --kld7-bypass-vertical-gate"
     # Auto-enable horizontal if symlink exists and not explicitly disabled
     if [ "$KLD7_HORIZONTAL" != true ] && [ -e /dev/kld7_horizontal ]; then
         KLD7_HORIZONTAL=true
