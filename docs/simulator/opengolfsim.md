@@ -76,11 +76,20 @@ still stream fine — you just set the club manually in OpenFlight.
 
 ## Troubleshooting
 
-- **Pill stays amber (reconnecting):** OpenFlight can't reach `host:port`. Verify
-  the Developer API device is selected in OGS, the IP is correct, 3111 isn't
-  firewalled, and you launched with `--sim`.
+- **Pill stays amber (connecting / reconnecting):** OpenFlight can't reach
+  `host:port`. Verify the Developer API device is selected in OGS, the IP is
+  correct, 3111 isn't firewalled, and you launched with `--sim`. ("Connecting"
+  means it has never connected yet; "reconnecting" means an established
+  connection dropped.)
 - **Shots don't appear:** confirm OGS is on a hittable screen with the Developer
   API connected. Check `sim_send` entries in the session log.
+- **First shot after connecting sometimes doesn't register:** the first shot on a
+  fresh connection occasionally doesn't play in OGS while later shots do. This
+  appears to depend on OpenGolfSim's screen/round state (it must be on a hittable
+  screen), not on OpenFlight — OpenFlight sends the shot correctly (confirm the
+  `sim_send` entry in the session log; OGS replies, e.g. `Code 200 "Club Data
+  received"`). Workaround: make sure OGS is on a hittable screen before you start,
+  and/or hit a throwaway first shot.
 - **Club shows "DR" / doesn't follow OGS:** the club-sync patch isn't applied (or
   an OGS update reverted it) — re-run `scripts/setup/opengolfsim/apply.sh`.
 
