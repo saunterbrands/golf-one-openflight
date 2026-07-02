@@ -2147,19 +2147,22 @@ class TestApplyCalculatedSpin:
 
 
 class TestVerticalGateBypass:
-    """--kld7-bypass-vertical-gate: show the radar angle for every candidate."""
+    """--kld7-vertical-raw: show the radar angle for every candidate."""
 
     def _shot(self):
         return SimpleNamespace(
             club=ClubType.IRON_7, ball_speed_mph=110.0, club_speed_mph=86.0, spin_rpm=None
         )
 
-    def test_default_rejects_garbage_low_reading(self):
-        # 0.6 deg for a 7-iron is outside the soft lane -> rejected normally.
+    def test_default_marginal_accepts_out_of_lane_reading(self):
+        # 0.6 deg for a 7-iron is outside the soft lane. It clears the hard
+        # physics guard, so it is shown as a low-confidence (marginal) radar
+        # reading rather than silently replaced by the club estimate.
         angle = KLD7Angle(vertical_deg=0.6, confidence=0.65, num_frames=1)
         accepted, details = server_module._select_vertical_radar_launch(angle, self._shot())
-        assert accepted is False
-        assert details["selection_reason"] == "outside_soft_lane"
+        assert accepted is True
+        assert details["selection_reason"] == "marginal_accept:outside_soft_lane"
+        assert details["acceptance_path"] == "marginal"
 
     def test_bypass_accepts_anything_with_a_candidate(self, monkeypatch):
         monkeypatch.setattr(server_module, "_VERTICAL_RADAR_GATE_BYPASS", True)
