@@ -74,7 +74,7 @@ function AppContent() {
       simStatuses: state.simStatuses,
       latestSimShots: state.latestSimShots,
       serverClub: state.serverClub,
-    })),
+    }))
   );
   const { latestShot, shots, isNewShot, shotVersion } = useShotStore(
     useShallow((state) => ({
@@ -82,7 +82,7 @@ function AppContent() {
       shots: state.shots,
       isNewShot: state.isNewShot,
       shotVersion: state.shotVersion,
-    })),
+    }))
   );
   const cameraStatus = useCameraStore((state) => state.cameraStatus);
   const { debugReadings, debugShotLogs, radarConfig, triggerDiagnostics, triggerStatus } = useDebugStore(
@@ -92,7 +92,7 @@ function AppContent() {
       radarConfig: state.radarConfig,
       triggerDiagnostics: state.triggerDiagnostics,
       triggerStatus: state.triggerStatus,
-    })),
+    }))
   );
 
   const [currentView, setCurrentView] = useState<View>('live');
@@ -113,8 +113,7 @@ function AppContent() {
   const [showShutdown, setShowShutdown] = useState(false);
   const { isLaunchDaddyMode, isExploding, triggerExplosion, handleSecretTap } = useLaunchDaddy();
   const { unitSystem, setUnitSystem } = useUnitPreference();
-  const isDisplayRoute =
-    typeof window !== 'undefined' && window.location.pathname.replace(/\/$/, '') === '/display';
+  const isDisplayRoute = typeof window !== 'undefined' && window.location.pathname.replace(/\/$/, '') === '/display';
 
   // Trigger explosion when a new shot is detected in Launch Daddy mode
   useEffect(() => {
@@ -130,14 +129,7 @@ function AppContent() {
   };
 
   if (isDisplayRoute) {
-    return (
-      <DisplayMode
-        connected={connected}
-        cameraStatus={cameraStatus}
-        latestShot={latestShot}
-        shots={shots}
-      />
-    );
+    return <DisplayMode connected={connected} cameraStatus={cameraStatus} latestShot={latestShot} shots={shots} />;
   }
 
   return (
@@ -206,12 +198,17 @@ function AppContent() {
           />
           <SimStatus statuses={simStatuses} />
           <ConnectionStatus connected={connected} />
-          <button
-            className="power-button"
-            onClick={() => setShowShutdown(true)}
-            title="Shut down"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+          <button className="power-button" onClick={() => setShowShutdown(true)} title="Shut down">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              width="20"
+              height="20"
+            >
               <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
               <line x1="12" y1="2" x2="12" y2="12" />
             </svg>
@@ -224,7 +221,13 @@ function AppContent() {
           <div className="shutdown-dialog">
             <p>Shut down OpenFlight?</p>
             <div className="shutdown-dialog__buttons">
-              <button className="shutdown-dialog__confirm" onClick={() => { shutdown(); setShowShutdown(false); }}>
+              <button
+                className="shutdown-dialog__confirm"
+                onClick={() => {
+                  shutdown();
+                  setShowShutdown(false);
+                }}
+              >
                 Shut Down
               </button>
               <button className="shutdown-dialog__cancel" onClick={() => setShowShutdown(false)}>
@@ -292,7 +295,11 @@ function AppContent() {
         {currentView === 'stats' && <StatsView shots={shots} onClearSession={() => socketService.clearSession()} />}
         {currentView === 'shots' && <ShotList shots={shots} />}
         {currentView === 'camera' && (
-          <CameraFeed cameraStatus={cameraStatus} onToggleCamera={() => socketService.toggleCamera()} onToggleStream={() => socketService.toggleCameraStream()} />
+          <CameraFeed
+            cameraStatus={cameraStatus}
+            onToggleCamera={() => socketService.toggleCamera()}
+            onToggleStream={() => socketService.toggleCameraStream()}
+          />
         )}
         {currentView === 'debug' && (
           <DebugPanel
