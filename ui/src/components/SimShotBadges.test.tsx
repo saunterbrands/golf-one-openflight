@@ -34,9 +34,7 @@ describe('SimShotBadges', () => {
       values: { ball_speed: 130, spin_axis: -2 },
       provenance: { ball_speed: 'measured', spin_axis: 'estimated' },
     };
-    const html = renderToString(
-      <SimShotBadges latestSimShots={{ gspro: gsproShot, opengolfsim: ogs }} />
-    );
+    const html = renderToString(<SimShotBadges latestSimShots={{ gspro: gsproShot, opengolfsim: ogs }} />);
     expect(html).toContain('Sent to GSPro');
     expect(html).toContain('Sent to OpenGolfSim');
   });

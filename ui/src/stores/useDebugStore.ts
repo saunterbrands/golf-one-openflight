@@ -38,33 +38,37 @@ export const useDebugStore = create<DebugState>((set) => ({
     triggers_rejected: 0,
   },
 
-  addDebugReading: (reading) => set((state) => {
-    const updated = [...state.debugReadings, reading];
-    return { debugReadings: updated.length > 50 ? updated.slice(-50) : updated };
-  }),
+  addDebugReading: (reading) =>
+    set((state) => {
+      const updated = [...state.debugReadings, reading];
+      return { debugReadings: updated.length > 50 ? updated.slice(-50) : updated };
+    }),
 
-  addDebugShotLog: (log) => set((state) => {
-    const updated = [...state.debugShotLogs, log];
-    return { debugShotLogs: updated.length > 20 ? updated.slice(-20) : updated };
-  }),
+  addDebugShotLog: (log) =>
+    set((state) => {
+      const updated = [...state.debugShotLogs, log];
+      return { debugShotLogs: updated.length > 20 ? updated.slice(-20) : updated };
+    }),
 
   clearDebugData: () => set({ debugReadings: [], debugShotLogs: [] }),
 
   setRadarConfig: (config) => set({ radarConfig: config }),
 
-  addTriggerDiagnostic: (diagnostic) => set((state) => {
-    const updated = [...state.triggerDiagnostics, diagnostic];
-    return { triggerDiagnostics: updated.length > 50 ? updated.slice(-50) : updated };
-  }),
+  addTriggerDiagnostic: (diagnostic) =>
+    set((state) => {
+      const updated = [...state.triggerDiagnostics, diagnostic];
+      return { triggerDiagnostics: updated.length > 50 ? updated.slice(-50) : updated };
+    }),
 
   setTriggerStatus: (status) => set({ triggerStatus: status }),
 
-  updateTriggerStatusStats: (accepted) => set((state) => ({
-    triggerStatus: {
-      ...state.triggerStatus,
-      triggers_total: state.triggerStatus.triggers_total + 1,
-      triggers_accepted: state.triggerStatus.triggers_accepted + (accepted ? 1 : 0),
-      triggers_rejected: state.triggerStatus.triggers_rejected + (accepted ? 0 : 1),
-    }
-  })),
+  updateTriggerStatusStats: (accepted) =>
+    set((state) => ({
+      triggerStatus: {
+        ...state.triggerStatus,
+        triggers_total: state.triggerStatus.triggers_total + 1,
+        triggers_accepted: state.triggerStatus.triggers_accepted + (accepted ? 1 : 0),
+        triggers_rejected: state.triggerStatus.triggers_rejected + (accepted ? 0 : 1),
+      },
+    })),
 }));

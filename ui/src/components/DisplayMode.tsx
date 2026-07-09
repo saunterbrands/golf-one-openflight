@@ -141,11 +141,17 @@ export function DisplayMode({ connected, cameraStatus, latestShot, shots }: Disp
             />
           )}
           <div className="display-mode__status-row">
-            <span className={`display-mode__status ${connected ? 'display-mode__status--online' : 'display-mode__status--offline'}`}>
+            <span
+              className={`display-mode__status ${connected ? 'display-mode__status--online' : 'display-mode__status--offline'}`}
+            >
               {connected ? 'Socket connected' : 'Socket disconnected'}
             </span>
-            <span className={`display-mode__status ${cameraStatus.available && cameraStatus.streaming && !cameraError ? 'display-mode__status--online' : 'display-mode__status--offline'}`}>
-              {cameraStatus.available && cameraStatus.streaming && !cameraError ? 'Camera stream active' : 'Camera unavailable'}
+            <span
+              className={`display-mode__status ${cameraStatus.available && cameraStatus.streaming && !cameraError ? 'display-mode__status--online' : 'display-mode__status--offline'}`}
+            >
+              {cameraStatus.available && cameraStatus.streaming && !cameraError
+                ? 'Camera stream active'
+                : 'Camera unavailable'}
             </span>
           </div>
         </div>
@@ -177,7 +183,8 @@ export function DisplayMode({ connected, cameraStatus, latestShot, shots }: Disp
                 {formatSpeed(shot.ball_speed_mph, unitSystem, 0)} {getSpeedUnit(unitSystem)}
               </span>
               <span className="display-shot-chip__stat">
-                {formatDistance(shot.carry_spin_adjusted ?? shot.estimated_carry_yards, unitSystem, 0)} {getDistanceUnit(unitSystem)}
+                {formatDistance(shot.carry_spin_adjusted ?? shot.estimated_carry_yards, unitSystem, 0)}{' '}
+                {getDistanceUnit(unitSystem)}
               </span>
             </div>
           ))

@@ -44,11 +44,7 @@ export function SimStatus({ statuses }: SimStatusProps) {
   return (
     <div className="sim-status" role="group" aria-label="Simulator connectors">
       {entries.map((s) => (
-        <div
-          key={s.target}
-          className={`sim-status__pill sim-status__pill--${severity(s.state)}`}
-          title={pillTitle(s)}
-        >
+        <div key={s.target} className={`sim-status__pill sim-status__pill--${severity(s.state)}`} title={pillTitle(s)}>
           <span className="sim-status__dot" />
           <span className="sim-status__name">{DISPLAY_NAMES[s.target] ?? s.target}</span>
           <span className="sim-status__state">{s.state}</span>

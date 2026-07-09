@@ -42,9 +42,7 @@ export function SimShotBadges({ latestSimShots }: SimShotBadgesProps) {
         return (
           <div key={sim.target} className="sim-shot-badges__card">
             <div className="sim-shot-badges__header">
-              <span className="sim-shot-badges__title">
-                {`Sent to ${DISPLAY_NAMES[sim.target] ?? sim.target}`}
-              </span>
+              <span className="sim-shot-badges__title">{`Sent to ${DISPLAY_NAMES[sim.target] ?? sim.target}`}</span>
               <span className="sim-shot-badges__shot">{`#${sim.shot_number}`}</span>
             </div>
             <div className="sim-shot-badges__grid">
@@ -54,10 +52,7 @@ export function SimShotBadges({ latestSimShots }: SimShotBadgesProps) {
                   <div key={f} className="sim-shot-badges__item">
                     <span className="sim-shot-badges__label">{FIELD_LABELS[f] ?? f}</span>
                     <span className="sim-shot-badges__value">{formatValue(sim.values[f])}</span>
-                    <span
-                      className={`sim-shot-badges__badge sim-shot-badges__badge--${prov}`}
-                      title={prov}
-                    >
+                    <span className={`sim-shot-badges__badge sim-shot-badges__badge--${prov}`} title={prov}>
                       {prov === 'measured' ? 'M' : 'E'}
                     </span>
                   </div>

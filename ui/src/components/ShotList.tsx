@@ -28,15 +28,21 @@ const ShotRow = memo(function ShotRow({ shot, shotNumber, unitSystem, distanceUn
         <span className="shot-row__label">ball</span>
       </span>
       <span className="shot-row__stat">
-        <span className="shot-row__value">{shot.club_speed_mph ? formatSpeed(shot.club_speed_mph, unitSystem, 1) : '—'}</span>
+        <span className="shot-row__value">
+          {shot.club_speed_mph ? formatSpeed(shot.club_speed_mph, unitSystem, 1) : '—'}
+        </span>
         <span className="shot-row__label">club</span>
       </span>
       <span className="shot-row__stat">
-        <span className="shot-row__value">{shot.launch_angle_vertical !== null ? `${shot.launch_angle_vertical.toFixed(1)}°` : '—'}</span>
+        <span className="shot-row__value">
+          {shot.launch_angle_vertical !== null ? `${shot.launch_angle_vertical.toFixed(1)}°` : '—'}
+        </span>
         <span className="shot-row__label">launch</span>
       </span>
       <span className="shot-row__stat">
-        <span className="shot-row__value">{shot.spin_rpm !== null ? shot.spin_rpm.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—'}</span>
+        <span className="shot-row__value">
+          {shot.spin_rpm !== null ? shot.spin_rpm.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—'}
+        </span>
         <span className="shot-row__label">spin</span>
       </span>
       <span className="shot-row__stat shot-row__stat--carry">

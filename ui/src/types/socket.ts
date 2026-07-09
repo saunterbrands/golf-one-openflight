@@ -5,13 +5,7 @@ export interface DebugReading {
   timestamp: string;
 }
 
-export type SimState =
-  | 'connected'
-  | 'connecting'
-  | 'reconnecting'
-  | 'disabled'
-  | 'stopped'
-  | 'error';
+export type SimState = 'connected' | 'connecting' | 'reconnecting' | 'disabled' | 'stopped' | 'error';
 
 export interface SimStatus {
   target: string;
