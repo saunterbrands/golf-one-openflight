@@ -37,7 +37,7 @@ simulator. For setting up a specific simulator, see its page above.
 2. **Enable the feature at launch with `--sim`** (off by default). Connectors
    marked `enabled` in the file then come up:
    ```bash
-   scripts/start-kiosk.sh --kld7 --sim
+   scripts/start-kiosk.sh --kld7 --sim   # --kld7 only for deprecated K-LD7 angle-radar builds
    ```
    Without `--sim`, no connectors run regardless of the file. (Once the feature
    is broadly stable it may default on.)

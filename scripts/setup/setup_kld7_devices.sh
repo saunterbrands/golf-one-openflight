@@ -2,6 +2,9 @@
 #
 # Interactive K-LD7 USB adapter naming wizard.
 #
+# DEPRECATED: the K-LD7 angle radars are deprecated (superseded by a more
+# capable radar chip). This script is kept for existing builds only.
+#
 # Identifies each K-LD7's FTDI adapter by plug-in order — no serial numbers
 # to look up, no udev rules to edit by hand. Writes a udev rule so the
 # radars always appear at /dev/kld7_vertical and /dev/kld7_horizontal no

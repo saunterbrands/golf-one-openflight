@@ -1,5 +1,7 @@
 # K-LD7 Troubleshooting Guide
 
+> **⚠️ DEPRECATED:** The K-LD7 angle radars are deprecated — OpenFlight has moved to a more capable radar chip for angle measurement. This guide is kept for existing K-LD7 builds only.
+
 Common issues with the K-LD7 angle radar and how to resolve them.
 
 ## Dual Radar Setup

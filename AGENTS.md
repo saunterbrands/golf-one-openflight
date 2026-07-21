@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-OpenFlight is a DIY golf launch monitor using the OPS243-A Doppler radar and K-LD7 angle radars. It measures ball speed, club speed, launch angle, club path, spin rate, and carry distance.
+OpenFlight is a DIY golf launch monitor using the OPS243-A Doppler radar and K-LD7 angle radars (deprecated — superseded by a more capable radar chip; K-LD7 support is kept for existing builds only). It measures ball speed, club speed, launch angle, club path, spin rate, and carry distance.
 
 ## Development Rules
 
@@ -134,7 +134,7 @@ uv run python scripts/hardware-test/test_rolling_buffer_persist.py --test
 ```bash
 scripts/start-kiosk.sh              # Default: rolling buffer + sound trigger
 scripts/start-kiosk.sh --mock       # Development mode without hardware
-scripts/start-kiosk.sh --kld7                          # With K-LD7 angle radars (auto-detects horizontal)
+scripts/start-kiosk.sh --kld7                          # With K-LD7 angle radars (deprecated; auto-detects horizontal)
 ```
 
 ### Sound Trigger Testing
@@ -175,7 +175,7 @@ React UI (WebSocket) ──► Flask Server ──► RollingBufferMonitor ─�
 - `ops243.py` - OPS243 radar driver, rolling buffer capture, I/Q processing
 - `launch_monitor.py` - Shot dataclass, ClubType enum, carry estimation
 - `rolling_buffer/` - Trigger strategies, I/Q processor, spin detection
-- `kld7/` - K-LD7 angle radar: RADC streaming, phase interferometry, dual-radar support
+- `kld7/` - K-LD7 angle radar (deprecated hardware): RADC streaming, phase interferometry, dual-radar support
 - `kld7/radc.py` - FFT, CFAR detection, per-bin angle extraction from raw ADC
 - `server.py` - Flask server, shot processing, K-LD7 correlation, carry estimation
 - `session_logger.py` - JSONL logging for post-session analysis

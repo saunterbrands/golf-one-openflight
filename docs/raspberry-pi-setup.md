@@ -14,8 +14,8 @@ Make sure you have all the hardware. See the **[Parts List](PARTS.md)** for what
 - OPS243-A Doppler Radar + USB cable
 - SparkFun SEN-14262 sound detector (wired per the [Sound Trigger Wiring Guide](sound-trigger-wiring.md))
 
-**Optional:**
-- K-LD7 + FTDI adapter (×2) — for launch angle and club path (see [Parts List](PARTS.md))
+**Optional (deprecated):**
+- K-LD7 + FTDI adapter (×2) — for launch angle and club path (see [Parts List](PARTS.md)). **Deprecated** — superseded by a more capable radar chip; don't buy for a new build. Supported for existing builds only.
 
 ## Setup
 
@@ -40,8 +40,8 @@ configuration with prompts:
 1. **Dependencies** — Python venv, packages, UI build, test run
 2. **OPS243-A radar** — saves rolling buffer mode to the radar's flash
    (you'll be asked to unplug/replug the radar once)
-3. **K-LD7 radars** (if you have them) — identifies each radar by plugging
-   them in one at a time, so OpenFlight always knows which is which
+3. **K-LD7 radars** (deprecated; if you have them) — identifies each radar by
+   plugging them in one at a time, so OpenFlight always knows which is which
 4. **Auto-start on boot** — optional systemd service
 5. **Desktop shortcut** — optional
 
@@ -52,7 +52,7 @@ it picks up where you left off.
 
 ```bash
 ./scripts/start-kiosk.sh                # Default: rolling buffer + sound trigger
-./scripts/start-kiosk.sh --kld7         # With K-LD7 angle radars
+./scripts/start-kiosk.sh --kld7         # With K-LD7 angle radars (deprecated)
 ./scripts/start-kiosk.sh --mock         # Mock mode (no hardware)
 ```
 
@@ -100,7 +100,7 @@ uv run python scripts/hardware-test/test_rolling_buffer_persist.py --test
 
 </details>
 
-### K-LD7 Device Names
+### K-LD7 Device Names (Deprecated Hardware)
 
 USB serial adapters can swap between `/dev/ttyUSB0` and `/dev/ttyUSB1` after a
 reboot, so OpenFlight needs fixed names (`/dev/kld7_vertical` and
@@ -191,7 +191,9 @@ sudo systemctl restart openflight
 
 ---
 
-## K-LD7 Physical Setup
+## K-LD7 Physical Setup (Deprecated Hardware)
+
+> **⚠️ DEPRECATED:** The K-LD7 angle radars are deprecated — this section applies to existing K-LD7 builds only.
 
 ### Mounting
 

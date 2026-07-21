@@ -1,5 +1,7 @@
 # K-LD7 Ball Detection Theory
 
+> **⚠️ DEPRECATED:** The K-LD7 angle radars are deprecated — OpenFlight has moved to a more capable radar chip for angle measurement. This document is kept for existing K-LD7 builds only.
+
 ## Problem
 
 The RFbeam K-LD7 is being used to estimate launch angle and club angle of attack

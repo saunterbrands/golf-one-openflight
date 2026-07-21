@@ -2,6 +2,9 @@
 #
 # Persistently set FTDI latency_timer=1ms for K-LD7 USB serial adapters.
 #
+# DEPRECATED: the K-LD7 angle radars are deprecated (superseded by a more
+# capable radar chip). This script is kept for existing builds only.
+#
 # This installs a udev rule targeted at the current /dev/kld7_vertical and
 # /dev/kld7_horizontal adapters by USB serial number, then applies the same
 # latency value to currently connected devices.

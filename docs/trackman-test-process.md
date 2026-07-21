@@ -1,5 +1,7 @@
 # Trackman Test Process
 
+> **⚠️ Note:** The K-LD7 angle radars referenced throughout this document are deprecated — OpenFlight has moved to a more capable radar chip for angle measurement. The K-LD7 steps apply to existing K-LD7 builds and historical session data only.
+
 This note is a handoff for future agents working on OpenFlight accuracy against
 Trackman. Treat Trackman as the source of truth for metric comparison.
 

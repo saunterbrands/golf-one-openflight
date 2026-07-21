@@ -21,8 +21,8 @@ OpenFlight is an open-source golf launch monitor that uses Doppler radar to meas
 - **Ball Speed**: 35-200 mph range with ±0.5% accuracy (OPS243-A)
 - **Club Speed**: Detected from pre-impact readings (OPS243-A)
 - **Smash Factor**: Ball speed / club speed ratio
-- **Launch Angle**: Vertical launch measured by K-LD7 angle radar
-- **Club Path**: Horizontal aim direction measured by second K-LD7
+- **Launch Angle**: Vertical launch measured by K-LD7 angle radar (deprecated — see below)
+- **Club Path**: Horizontal aim direction measured by second K-LD7 (deprecated — see below)
 - **Spin Rate**: Via rolling buffer I/Q analysis (the hardest radar measurement — see [Limitations](#limitations))
 - **Carry Distance**: Computed from ball speed, launch angle, and spin
 
@@ -34,11 +34,11 @@ OpenFlight is an open-source golf launch monitor that uses Doppler radar to meas
 | Raspberry Pi 5 | Runs everything | $60 |
 | 7" Touchscreen | Shows shot data | $46 |
 | SparkFun SEN-14262 | Impact sound trigger for shot capture | $18 |
-| K-LD7 (×2) + FTDI adapters | Launch angle + club path | $140 |
+| K-LD7 (×2) + FTDI adapters | Launch angle + club path (**deprecated**) | $140 |
 | Power supply + accessories | | $27 |
 | **Total** | | **~$540** |
 
-> The K-LD7 angle radars are optional. Without them you still get ball speed, club speed, smash factor, spin rate, and estimated carry. See the [full parts list](docs/PARTS.md) for details and links.
+> **⚠️ The K-LD7 angle radars are deprecated** — OpenFlight has moved to a more capable radar chip for angle measurement. Don't buy K-LD7s for a new build; software support remains for existing builds only. Without angle radars you still get ball speed, club speed, smash factor, spin rate, and estimated carry. See the [full parts list](docs/PARTS.md) for details and links.
 
 ## Getting Started
 
@@ -48,7 +48,7 @@ See the **[Parts List](docs/PARTS.md)** for everything you need with purchase li
 
 ### 2. Wire it up
 
-Follow the **[Sound Trigger Wiring Guide](docs/sound-trigger-wiring.md)** to connect the SEN-14262 to the OPS243-A. The K-LD7 modules connect via USB — no wiring needed.
+Follow the **[Sound Trigger Wiring Guide](docs/sound-trigger-wiring.md)** to connect the SEN-14262 to the OPS243-A. The (deprecated) K-LD7 modules connect via USB — no wiring needed.
 
 ### 3. Set up the Pi
 
@@ -72,7 +72,7 @@ details and troubleshooting.
 # Default: rolling buffer mode with sound trigger
 scripts/start-kiosk.sh
 
-# With K-LD7 launch-angle geometry defaults
+# With K-LD7 launch-angle geometry defaults (deprecated hardware)
 scripts/start-kiosk.sh --kld7-geometry
 
 # Development mode (no hardware)
@@ -189,7 +189,7 @@ monitor.disconnect()
 
 - **Cosine error**: If ball doesn't travel directly toward/away from radar, measured speed will be slightly lower than actual
 - **Spin detection**: The hardest radar measurement, especially indoors — the usable signal window ends when the ball hits the net, and short windows can't resolve low spin (commercial radar units have the same constraint and fall back to estimated spin indoors). Low driver-band readings (≤~3100 RPM) are reported at reduced confidence. When spin isn't measured, carry falls back to club-typical spin values. Improving this is an active focus.
-- **K-LD7 speed aliasing**: The K-LD7 max speed is 62 mph, so it's used only for angle/distance, not speed
+- **K-LD7 speed aliasing** (deprecated hardware): The K-LD7 max speed is 62 mph, so it's used only for angle/distance, not speed
 
 ### Ball Markings
 
@@ -222,7 +222,7 @@ openflight/
 │   ├── launch_monitor.py      # Shot detection & club/ball separation
 │   ├── server.py              # Flask server, K-LD7 correlation, carry
 │   ├── session_logger.py      # JSONL session logging
-│   ├── kld7/                  # K-LD7 angle radar
+│   ├── kld7/                  # K-LD7 angle radar (deprecated)
 │   │   ├── radc.py            # FFT, phase interferometry, angle extraction
 │   │   ├── tracker.py         # Ring buffer, shot correlation
 │   │   ├── geometry.py        # Launch-angle trajectory fitting
@@ -245,7 +245,6 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 Areas of interest:
 
 - **Better spin detection**: A dechirped Doppler-sideband estimator is in development (`scripts/analysis/replay_spin_dechirp.py`) — help validating it against launch-monitor truth data is especially welcome
-- **K-LD7 signal processing**: Improve ball detection from sparse radar frames
 - **Mobile app**: Bluetooth connection to phone
 
 ### Running Tests
@@ -263,8 +262,8 @@ uv run pytest tests/ -v
 - **[Cloud Sync](docs/cloud-sync.md)** — Push filtered sessions to FlightWeb
 - **[Rolling Buffer & Spin Detection](docs/rolling_buffer_spin_detection.md)** — Spin measurement details
 - **[Dechirped-Sideband Spin Replay](docs/spin-dechirp-replay.md)** — Next-gen spin estimator test bench
-- **[K-LD7 Ball Detection Theory](docs/kld7-ball-detection-theory.md)** — How angle detection works
-- **[K-LD7 Session Review](docs/kld7-session-review.md)** — Offline review workflow for session JSONL files
+- **[K-LD7 Ball Detection Theory](docs/kld7-ball-detection-theory.md)** — How angle detection works (deprecated hardware)
+- **[K-LD7 Session Review](docs/kld7-session-review.md)** — Offline review workflow for session JSONL files (deprecated hardware)
 - **[Observability & Log Shipping](docs/observability.md)** — Ship logs to Grafana Cloud
 - **[Contributing Guide](CONTRIBUTING.md)** — How to contribute
 - **[Changelog](docs/CHANGELOG.md)** — Version history

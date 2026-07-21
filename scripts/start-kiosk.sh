@@ -420,6 +420,7 @@ fi
 # launch-angle estimator and the ball-speed cosine correction on the server
 # side; mount tilt is required (checked above) and the offset defaults to the
 # calibrated 1.5 unless overridden.
+# (Deprecated: K-LD7 hardware is superseded by a more capable radar chip)
 if [ "$KLD7" = true ]; then
     SERVER_CMD="$SERVER_CMD --kld7"
     SERVER_CMD="$SERVER_CMD --kld7-port ${KLD7_PORT:-/dev/kld7_vertical}"
@@ -504,6 +505,10 @@ fi
 
 if [ "$TRACKMAN_TEST" = true ]; then
     log "TrackMan test mode enabled (dual K-LD7, raw RADC logging, location: $SESSION_LOCATION)"
+fi
+
+if [ "$KLD7" = true ]; then
+    warn "K-LD7 angle radars are deprecated (superseded by a more capable radar chip)"
 fi
 
 if [ "$NO_CAMERA" = true ]; then

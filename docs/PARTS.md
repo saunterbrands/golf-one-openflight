@@ -42,7 +42,9 @@ SEN-14262               Raspberry Pi           OPS243
 
 See [sound-trigger-wiring.md](sound-trigger-wiring.md) for detailed instructions and troubleshooting.
 
-## Angle Radar (K-LD7)
+## Angle Radar (K-LD7) — DEPRECATED
+
+> **⚠️ DEPRECATED — do not buy for new builds.** The K-LD7 angle radars have been superseded by a more capable radar chip. K-LD7 support remains in the software for existing builds but will not receive further development. The parts below are listed for reference only.
 
 Two K-LD7 modules measure launch angle (vertical) and club path / aim direction (horizontal). The OPS243 handles speed; the K-LD7s provide **angle and distance only** (speed data aliases above 62 mph).
 
@@ -85,8 +87,8 @@ One unit is mounted vertically (launch angle), one horizontally (club path / aim
 |----------|--------|
 | Core (OPS243, Pi 5, Display) | $355 |
 | Sound Trigger (SEN-14262 + resistor + wires) | $18 |
-| Angle Radar (2× K-LD7 + FTDI adapters) | $140 |
+| Angle Radar (2× K-LD7 + FTDI adapters) — **deprecated** | $140 |
 | Power & Accessories | $27 |
 | **Total** | **~$540** |
 
-> The angle radar is the most expensive component. OpenFlight works without it — you'll get ball speed, club speed, smash factor, and estimated carry. The K-LD7s add measured launch angle and club path data.
+> The angle radar is the most expensive component. OpenFlight works without it — you'll get ball speed, club speed, smash factor, and estimated carry. The K-LD7s add measured launch angle and club path data, but they are **deprecated** — don't buy them for a new build.

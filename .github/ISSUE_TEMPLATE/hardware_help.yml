@@ -10,7 +10,7 @@ body:
         Before opening an issue, check:
         - [Raspberry Pi setup guide](https://github.com/jewbetcha/openflight/blob/main/docs/raspberry-pi-setup.md)
         - [Sound trigger wiring guide](https://github.com/jewbetcha/openflight/blob/main/docs/sound-trigger-wiring.md)
-        - [K-LD7 troubleshooting](https://github.com/jewbetcha/openflight/blob/main/docs/kld7-troubleshooting.md)
+        - [K-LD7 troubleshooting](https://github.com/jewbetcha/openflight/blob/main/docs/kld7-troubleshooting.md) (deprecated hardware)
 
   - type: textarea
     id: description

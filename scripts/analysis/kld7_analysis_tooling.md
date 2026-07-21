@@ -1,5 +1,7 @@
 # K-LD7 Analysis Tooling
 
+> **⚠️ DEPRECATED:** The K-LD7 angle radars are deprecated — OpenFlight has moved to a more capable radar chip for angle measurement. This tooling is kept for existing K-LD7 builds and historical session logs only.
+
 This guide covers the K-LD7 offline and live analysis workflow built around:
 
 - `kld7_geometry_selection_report.py`

@@ -1,5 +1,7 @@
 ![](images/IARC_case_v3.png)
 
+> **⚠️ Note:** The KLD7 mounts in this case are for the deprecated K-LD7 angle radars — OpenFlight has moved to a more capable radar chip. Skip the KLD7 mount steps for a new build.
+
 - M5 Bolts needed: 10
 - M2.5 Bolts needed: 12
 

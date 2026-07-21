@@ -36,7 +36,7 @@ body:
       options:
         - Radar / shot detection
         - Spin detection
-        - Launch angle (K-LD7)
+        - Launch angle (K-LD7, deprecated)
         - UI / frontend
         - Server / WebSocket
         - Session logging

@@ -2,6 +2,9 @@
 """
 K-LD7 radar module test script for angle/distance data gathering.
 
+DEPRECATED: the K-LD7 angle radars are deprecated (superseded by a more
+capable radar chip). This script is kept for existing builds only.
+
 Connects to the K-LD7 EVAL board via USB serial, configures for golf
 use (short range, max speed, both directions), streams raw target
 detection (PDAT) and optionally FFT data, and saves everything to a

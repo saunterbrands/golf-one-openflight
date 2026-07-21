@@ -202,7 +202,7 @@ openflight/
 │   ├── ops243.py         # Radar driver
 │   ├── launch_monitor.py # Shot detection
 │   ├── server.py         # WebSocket server
-│   ├── kld7/             # K-LD7 angle radar
+│   ├── kld7/             # K-LD7 angle radar (deprecated)
 │   └── rolling_buffer/   # Spin detection
 ├── ui/                   # React frontend
 │   └── src/

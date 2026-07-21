@@ -2671,7 +2671,9 @@ def main():
         ),
     )
     parser.add_argument(
-        "--kld7", action="store_true", help="Enable K-LD7 vertical angle radar (launch angle)"
+        "--kld7",
+        action="store_true",
+        help="[DEPRECATED] Enable K-LD7 vertical angle radar (launch angle)",
     )
     parser.add_argument(
         "--kld7-port",
@@ -2750,7 +2752,7 @@ def main():
     parser.add_argument(
         "--kld7-horizontal",
         action="store_true",
-        help="Enable K-LD7 horizontal angle radar (club path)",
+        help="[DEPRECATED] Enable K-LD7 horizontal angle radar (club path)",
     )
     parser.add_argument("--kld7-horizontal-port", default=None, help="K-LD7 horizontal serial port")
     parser.add_argument(

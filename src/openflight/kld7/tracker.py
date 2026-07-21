@@ -1,4 +1,8 @@
-"""K-LD7 angle radar tracker with ring buffer for shot correlation."""
+"""K-LD7 angle radar tracker with ring buffer for shot correlation.
+
+Deprecated: the K-LD7 angle radars are deprecated (superseded by a more
+capable radar chip). Kept for existing builds only.
+"""
 
 import base64
 import glob

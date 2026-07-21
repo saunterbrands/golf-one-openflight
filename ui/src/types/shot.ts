@@ -7,7 +7,7 @@ export interface Shot {
   club: string;
   timestamp: string;
   peak_magnitude: number | null;
-  // Launch angle data (from K-LD7 radar, camera, or estimation)
+  // Launch angle data (from K-LD7 radar (deprecated), camera, or estimation)
   launch_angle_vertical: number | null;
   launch_angle_horizontal: number | null;
   launch_angle_confidence: number | null;

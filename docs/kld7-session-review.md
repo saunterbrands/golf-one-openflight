@@ -1,5 +1,7 @@
 # K-LD7 Session Review
 
+> **⚠️ DEPRECATED:** The K-LD7 angle radars are deprecated — OpenFlight has moved to a more capable radar chip for angle measurement. This workflow is kept for existing K-LD7 builds and historical session logs only.
+
 This workflow is for reviewing a full `session_logs/session_*.jsonl` file after a K-LD7 tuning change.
 
 It is intentionally an **offline empirical review tool**, not a live detector.
