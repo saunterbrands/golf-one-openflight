@@ -57,7 +57,7 @@ export function DisplaySettings() {
   const [selectedMode, setSelectedMode] = useState<DisplayPreference>('simulator');
   const [savedMode, setSavedMode] = useState<DisplayPreference>('simulator');
   const [isSaving, setIsSaving] = useState(false);
-  const [feedback, setFeedback] = useState('Loading the saved display…');
+  const [feedback, setFeedback] = useState('Loading the remembered display…');
 
   useEffect(() => {
     let active = true;
@@ -69,10 +69,10 @@ export function DisplaySettings() {
         if (!active) return;
         setSelectedMode(result.mode);
         setSavedMode(result.mode);
-        setFeedback('Choose what Golf One should show when this screen starts.');
+        setFeedback('Choose a display, then select Show selected display to open it.');
       })
       .catch(() => {
-        if (active) setFeedback('Using OpenGolfSim as the default display.');
+        if (active) setFeedback('OpenGolfSim is ready as the remembered selection.');
       });
 
     return () => {
@@ -86,7 +86,9 @@ export function DisplaySettings() {
     try {
       const result = await saveDisplayMode(selectedMode);
       setSavedMode(result.mode);
-      setFeedback(`${DISPLAY_OPTIONS.find((option) => option.mode === result.mode)?.name} is now the default display.`);
+      setFeedback(
+        `${DISPLAY_OPTIONS.find((option) => option.mode === result.mode)?.name} is now remembered on this Golf One. The Dashboard will still open first.`
+      );
       return result;
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Golf One could not save the display setting.');
@@ -110,8 +112,8 @@ export function DisplaySettings() {
         <p className="display-settings__eyebrow">GOLF ONE APPLIANCE</p>
         <h1 id="display-settings-title">Display Settings</h1>
         <p>
-          Pick the view that belongs on this screen. The choice is saved on the Raspberry Pi and opens automatically
-          after the next restart.
+          Golf One Dashboard always starts first. Choose which full-screen display to open manually from here; this Pi
+          remembers your selection for next time.
         </p>
         <div className="display-settings__screen">
           <span>WAVESHARE DISPLAY</span>
@@ -122,13 +124,13 @@ export function DisplaySettings() {
       <div className="display-settings__chooser">
         <div className="display-settings__chooser-heading">
           <div>
-            <span>DEFAULT DISPLAY</span>
-            <h2>Choose a mode</h2>
+            <span>DISPLAY SHORTCUT</span>
+            <h2>Choose a display</h2>
           </div>
-          <span className="display-settings__saved">Saved on this Golf One</span>
+          <span className="display-settings__saved">Remembered on this Golf One</span>
         </div>
 
-        <div className="display-settings__options" role="radiogroup" aria-label="Default display">
+        <div className="display-settings__options" role="radiogroup" aria-label="Display selection">
           {DISPLAY_OPTIONS.map((option) => {
             const selected = selectedMode === option.mode;
             const saved = savedMode === option.mode;
@@ -143,7 +145,7 @@ export function DisplaySettings() {
               >
                 <span className="display-settings__option-topline">
                   <span>{option.eyebrow}</span>
-                  {saved && <strong>Default display</strong>}
+                  {saved && <strong>Remembered</strong>}
                 </span>
                 <span className="display-settings__option-name">{option.name}</span>
                 <span className="display-settings__option-description">{option.description}</span>
@@ -159,7 +161,7 @@ export function DisplaySettings() {
 
         <div className="display-settings__actions">
           <button type="button" className="display-settings__save" disabled={isSaving} onClick={persistSelection}>
-            {isSaving ? 'Saving…' : 'Save as default'}
+            {isSaving ? 'Saving…' : 'Remember selection'}
           </button>
           <button type="button" className="display-settings__show" disabled={isSaving} onClick={showSelectedDisplay}>
             Show selected display

@@ -19,7 +19,6 @@ import { BallDetectionIndicator } from './components/BallDetectionIndicator';
 import { DisplayMode } from './components/DisplayMode';
 import { DisplaySettings, DisplaySettingsLink } from './components/DisplaySettings';
 import { KioskExitControl } from './components/KioskExitControl';
-import { OpenGolfSimView } from './components/OpenGolfSimView';
 import {
   useLaunchDaddy,
   LaunchDaddyOverlay,
@@ -32,16 +31,10 @@ import Logo from './logo/Logo';
 
 import './App.css';
 
-type View = 'simulator' | 'live' | 'stats' | 'shots' | 'camera' | 'debug' | 'settings';
+type View = 'live' | 'stats' | 'shots' | 'camera' | 'debug' | 'settings';
 
 // Navigation icons as inline SVGs for better control
 const Icons = {
-  simulator: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <path d="M5 21V4m0 1h10l-2.5 3L15 11H5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8 21h8M12 17v4" strokeLinecap="round" />
-    </svg>
-  ),
   live: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
       <circle cx="12" cy="12" r="3" />
@@ -112,7 +105,7 @@ function AppContent() {
   const [currentView, setCurrentView] = useState<View>(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('settings') === '1'
       ? 'settings'
-      : 'simulator'
+      : 'live'
   );
   const [selectedClub, setSelectedClub] = useState('driver');
   // Reflect a server-pushed club change (e.g. the club changed in the connected
@@ -213,13 +206,6 @@ function AppContent() {
 
       <nav className="nav">
         <button
-          className={`nav__button ${currentView === 'simulator' ? 'nav__button--active' : ''}`}
-          onClick={() => setCurrentView('simulator')}
-        >
-          {Icons.simulator}
-          <span>Simulator</span>
-        </button>
-        <button
           className={`nav__button ${currentView === 'live' ? 'nav__button--active' : ''}`}
           onClick={() => setCurrentView('live')}
         >
@@ -267,7 +253,6 @@ function AppContent() {
       </nav>
 
       <main className="main">
-        {currentView === 'simulator' && <OpenGolfSimView />}
         {currentView === 'live' && (
           <div className="live-view">
             {isNewShot && <div key={shotVersion} className="shot-flash" />}

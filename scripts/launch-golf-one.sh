@@ -9,9 +9,17 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HEALTH_URL="${GOLF_ONE_SERVER_HEALTH_URL:-http://localhost:8080}"
-KIOSK_URL="${GOLF_ONE_KIOSK_URL:-http://localhost:8080/?autolaunch=1}"
+KIOSK_URL="${GOLF_ONE_KIOSK_URL:-http://localhost:8080/}"
 DEFAULT_ARGS=(--mock --sim)
 LAUNCH_LOCK="${GOLF_ONE_LAUNCH_LOCK_FILE:-${XDG_RUNTIME_DIR:-/tmp}/golf-one-kiosk-launch.lock}"
+BROWSER_ALREADY_RUNNING="${GOLF_ONE_BROWSER_ALREADY_RUNNING:-0}"
+
+open_kiosk_browser() {
+    if [ "$BROWSER_ALREADY_RUNNING" = "1" ]; then
+        return 0
+    fi
+    exec "$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL"
+}
 
 # Use real launch-monitor hardware automatically when the OPS243-A is present.
 # Do not treat every USB serial adapter as the radar: K-LD7 adapters and setup
@@ -55,7 +63,8 @@ if ops243_is_present; then
 fi
 
 if curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
-    exec "$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL"
+    open_kiosk_browser
+    exit 0
 fi
 
 # Serialize the unhealthy-server startup window. This prevents Labwc and a
@@ -65,7 +74,8 @@ if command -v flock >/dev/null 2>&1; then
     if ! flock -n 9; then
         for _ in $(seq 1 60); do
             if curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
-                exec "$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL"
+                open_kiosk_browser
+                exit 0
             fi
             sleep 0.5
         done
@@ -78,7 +88,8 @@ fi
 
 # The server may have become healthy while this process waited for the lock.
 if curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
-    exec "$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL"
+    open_kiosk_browser
+    exit 0
 fi
 
 if [ "$#" -gt 0 ]; then

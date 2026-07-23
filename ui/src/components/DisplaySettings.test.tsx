@@ -24,17 +24,19 @@ describe('DisplaySettings', () => {
     vi.restoreAllMocks();
   });
 
-  it('offers the simulator and wide launch-monitor display modes', () => {
+  it('offers manual display choices while keeping the Dashboard as startup', () => {
     const html = renderToString(<DisplaySettings />);
 
     expect(html).toContain('Display Settings');
     expect(html).toContain('OpenGolfSim Simulator');
     expect(html).toContain('Wide Launch Monitor');
-    expect(html).toContain('Default display');
+    expect(html).toContain('Golf One Dashboard always starts first');
+    expect(html).toContain('Remembered');
     expect(html).toContain('Show selected display');
+    expect(html).not.toContain('Default display');
   });
 
-  it('loads and persists the selected default display on the Pi', async () => {
+  it('loads and persists the remembered manual display selection on the Pi', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const payload =
         init?.method === 'POST'
@@ -58,7 +60,7 @@ describe('DisplaySettings', () => {
     act(() => wideOption?.click());
 
     const saveButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === 'Save as default'
+      (button) => button.textContent === 'Remember selection'
     );
     await act(async () => {
       saveButton?.click();
@@ -70,6 +72,8 @@ describe('DisplaySettings', () => {
       method: 'POST',
       body: JSON.stringify({ mode: 'launch_monitor' }),
     });
-    expect(container.textContent).toContain('Wide Launch Monitor is now the default display.');
+    expect(container.textContent).toContain(
+      'Wide Launch Monitor is now remembered on this Golf One. The Dashboard will still open first.'
+    );
   });
 });

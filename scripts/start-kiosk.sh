@@ -550,12 +550,17 @@ fi
 
 log "Server is running!"
 
-# Launch browser in kiosk mode
-log "Launching kiosk browser..."
-
-KIOSK_URL="${GOLF_ONE_KIOSK_URL:-http://$HOST:$PORT/?autolaunch=1}"
-"$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL" &
-BROWSER_PID=$!
+# The appliance session opens one branded loading browser immediately, before
+# server initialization. Reuse that exact persistent-profile process so
+# Chromium never races two ProcessSingleton launches during boot.
+if [ "${GOLF_ONE_BROWSER_ALREADY_RUNNING:-0}" = "1" ]; then
+    log "Branded kiosk browser is already running; reusing it."
+else
+    log "Launching kiosk browser..."
+    KIOSK_URL="${GOLF_ONE_KIOSK_URL:-http://$HOST:$PORT/}"
+    "$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL" &
+    BROWSER_PID=$!
+fi
 
 log "Golf One is running! Press Ctrl+C to stop."
 

@@ -11,6 +11,29 @@ test.beforeEach(async () => {
   });
 });
 
+test('starts on the Golf One Live dashboard and keeps OpenGolfSim in Settings', async ({ page }) => {
+  await gotoApp(page);
+
+  await expect(page.getByRole('button', { name: 'Live' })).toHaveClass(/nav__button--active/);
+  await expect(page.getByText('Ready for your shot')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Play OpenGolfSim' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Simulator' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('heading', { name: 'Display Settings' })).toBeVisible();
+  await expect(page.getByText('Golf One Dashboard always starts first')).toBeVisible();
+  await expect(page.getByRole('radio', { name: /OpenGolfSim Simulator/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Show selected display/ })).toBeVisible();
+});
+
+test('ignores the retired autolaunch query and stays on the Golf One dashboard', async ({ page }) => {
+  await gotoApp(page, '/?autolaunch=1');
+
+  await expect(page).toHaveURL(/\/\?autolaunch=1$/);
+  await expect(page.getByRole('button', { name: 'Live' })).toHaveClass(/nav__button--active/);
+  await expect(page.getByText('Ready for your shot')).toBeVisible();
+});
+
 test('stays usable when websocket upgrade fails and socket.io falls back to polling', async ({ page }) => {
   await gotoApp(page);
 

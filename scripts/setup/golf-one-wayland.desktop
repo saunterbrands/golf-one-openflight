@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Golf One Appliance
+Comment=Golf One launch-monitor kiosk with protected desktop recovery
+Exec=/usr/local/bin/golf-one-appliance-session
+TryExec=/usr/local/bin/golf-one-appliance-session
+DesktopNames=GolfOne

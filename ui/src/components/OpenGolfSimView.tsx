@@ -3,12 +3,13 @@ import { getServerOrigin } from '../utils/serverOrigin';
 import './OpenGolfSimView.css';
 
 const OPEN_GOLF_SIM_WEB_URL = 'https://app.opengolfsim.com/account/simulator';
-const OPEN_GOLF_SIM_LAUNCH_URL = '/simulator/launch';
 const OFFLINE_PRACTICE_RANGE_URL = '/offline-simulator';
-const DISPLAY_MODE_API_URL = `${getServerOrigin()}/api/display-mode`;
 const OPEN_GOLF_SIM_API_URL = `${getServerOrigin()}/api/opengolfsim`;
 const METERS_TO_YARDS = 1.0936133;
 
+// This pure conversion is exported alongside the component for its focused
+// protocol-boundary regression test.
+// eslint-disable-next-line react-refresh/only-export-components
 export const fuseMetersToYards = (meters: number) => meters * METERS_TO_YARDS;
 
 type BridgeState = 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
@@ -57,51 +58,7 @@ export function OpenGolfSimView() {
   const [status, setStatus] = useState<OpenGolfSimStatus>(EMPTY_STATUS);
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState(() =>
-    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autolaunch') === '1'
-      ? 'Opening your default display…'
-      : ''
-  );
-
-  useEffect(() => {
-    const shouldAutoLaunch =
-      new URLSearchParams(window.location.search).get('autolaunch') === '1' &&
-      window.sessionStorage.getItem('golf-one:opengolfsim-autolaunched') !== '1';
-    if (!shouldAutoLaunch) return;
-
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 5000);
-
-    const launchDefaultDisplay = async () => {
-      try {
-        const preferenceResponse = await fetch(DISPLAY_MODE_API_URL, {
-          headers: { Accept: 'application/json' },
-          signal: controller.signal,
-        });
-        if (preferenceResponse.ok) {
-          const preference = (await preferenceResponse.json()) as { mode?: string };
-          if (preference.mode === 'launch_monitor') {
-            window.location.assign('/display');
-            return;
-          }
-        }
-
-        window.sessionStorage.setItem('golf-one:opengolfsim-autolaunched', '1');
-        window.location.assign(OPEN_GOLF_SIM_LAUNCH_URL);
-      } catch {
-        setFeedback('The default display could not open. Check Wi-Fi or choose another display in Settings.');
-      } finally {
-        window.clearTimeout(timeout);
-      }
-    };
-
-    void launchDefaultDisplay();
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeout);
-    };
-  }, []);
+  const [feedback, setFeedback] = useState('');
 
   useEffect(() => {
     let active = true;

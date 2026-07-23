@@ -43,32 +43,49 @@ scripts/launch-golf-one.sh
 ```
 
 It opens the full stack in mock/simulator mode by default, then launches the
-official OpenGolfSim Web app full-screen. If the server is already healthy and
-only Chromium was closed, it reopens the persistent kiosk profile instead of
-starting a duplicate server.
+Golf One Live dashboard full-screen. OpenGolfSim remains available as a manual
+display choice in Dashboard **Settings**. If the server is already healthy and
+only Chromium was closed, the launcher reopens the persistent kiosk profile
+instead of starting a duplicate server.
 
 The Raspberry Pi desktop launcher is tracked at
-`scripts/setup/GolfOne.desktop`. The custom Plymouth boot theme and installer
-are under `scripts/setup/plymouth/` and
-`scripts/setup/install-golf-one-plymouth.sh`.
+`scripts/setup/GolfOne.desktop`. The custom Plymouth boot theme and protected
+appliance session are installed separately: Plymouth owns early boot, then the
+appliance session keeps a Golf One cover above the Pi desktop until Chromium
+has painted the local loading page.
 
-Install the branded boot screen once on each Raspberry Pi, then reboot:
+Install both pieces once on each Raspberry Pi, then reboot:
 
 ```bash
 cd /home/openflight/golf-one-openflight
 sudo ./scripts/setup/install-golf-one-plymouth.sh
+sudo ./scripts/setup/install-golf-one-appliance-session.sh
 sudo reboot
 ```
 
-The installer keeps a timestamped backup under
+The Plymouth installer keeps a timestamped backup under
 `/var/backups/golf-one/boot-splash-*`, selects the independent `golf-one`
 Plymouth theme, suppresses Raspberry Pi firmware and kernel branding, and
-rebuilds the initramfs so the splash is available during early boot.
+rebuilds the initramfs so the splash is available during early boot. The
+appliance-session installer keeps its backup under
+`/var/backups/golf-one/appliance-session-*`, selects the dedicated `golf-one`
+LightDM session, preserves the Waveshare touch matrix, and starts the normal Pi
+desktop behind the cover so the protected 10-tap/PIN exit still works.
+
+The expected visual handoff is:
+
+```text
+Golf One Plymouth → Golf One session cover → Golf One loading page → Live dashboard
+```
+
+The Raspberry Pi wallpaper, panel, greeter, and OpenGolfSim are not part of the
+normal startup path.
 
 The Pi owns a loopback-only OpenGolfSim shot relay, while a bundled Chromium
 extension posts those shots into the active FUSE game and returns completed
 results. The extension also adds Golf One status/setup, a Dashboard shortcut,
 an immersive-layout toggle, and the protected exit gesture to the full-screen
-game. The local Golf One UI defaults to its OpenGolfSim setup/launch view. See
+game. The local Golf One UI always starts on its Live dashboard; OpenGolfSim
+opens only after it is chosen manually. See
 [`docs/simulator/opengolfsim.md`](simulator/opengolfsim.md) for account and shot
 bridge setup.

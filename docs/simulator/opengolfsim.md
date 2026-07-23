@@ -13,10 +13,12 @@ opens the official experimental WebGL simulator.
 
 ## OpenGolfSim Web on the Waveshare
 
-1. Golf One checks whether `https://app.opengolfsim.com/account/simulator` is
-   reachable at boot.
-2. When online, Golf One opens the official hosted simulator.
-3. When offline, Golf One opens the appliance-local FUSE Practice Range.
+1. Golf One boots into its Live dashboard.
+2. Open **Settings**, choose **OpenGolfSim Simulator**, and press **Show selected
+   display**.
+3. Golf One checks whether `https://app.opengolfsim.com/account/simulator` is
+   reachable. When online it opens the official hosted simulator; when offline
+   it opens the appliance-local FUSE Practice Range.
 4. Sign in to OpenGolfSim when the hosted site asks. The dedicated Chromium
    profile persists the official session cookie across kiosk and Pi restarts.
 5. Select a range or course.
@@ -76,7 +78,8 @@ commercial Golf One product requires a commercial agreement with OpenGolfSim.
 
 ## Hosted simulator workflow
 
-1. Golf One opens `https://app.opengolfsim.com/account/simulator`.
+1. From the Golf One Dashboard, open **Settings**, choose **OpenGolfSim
+   Simulator**, and press **Show selected display**.
 2. Sign in to OpenGolfSim. The password stays entirely inside OpenGolfSim.
 3. Select a range or course.
 4. Wait for the lower-left **Golf One** chip to read **Game ready**.

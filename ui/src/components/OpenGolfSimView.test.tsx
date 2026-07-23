@@ -1,8 +1,28 @@
+// @vitest-environment jsdom
+// @vitest-environment-options {"url":"http://localhost/"}
+
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fuseMetersToYards, OpenGolfSimView } from './OpenGolfSimView';
 
 describe('OpenGolfSimView', () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    window.history.replaceState({}, '', '/');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it('offers device-owned shot setup and a full-screen simulator launch', () => {
     const html = renderToString(<OpenGolfSimView />);
 
@@ -25,5 +45,36 @@ describe('OpenGolfSimView', () => {
 
   it('converts the FUSE metre result before labeling carry as yards', () => {
     expect(fuseMetersToYards(191.32)).toBeCloseTo(209.23, 2);
+  });
+
+  it('never auto-redirects when the legacy autolaunch query is present', async () => {
+    window.history.replaceState({}, '', '/?autolaunch=1');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(
+        JSON.stringify({
+          configured: false,
+          email: '',
+          state: 'disabled',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<OpenGolfSimView />);
+    });
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/\/api\/display-mode$/)])
+    );
+
+    act(() => root.unmount());
   });
 });

@@ -42,6 +42,8 @@ VITE_SOCKET_URL="http://localhost:8081" npm run dev
 
 The app is entirely client-side. Everything flows through one socket connection.
 
+- **`/`** starts on the Golf One Live dashboard. OpenGolfSim is a manual display
+  choice under **Settings** and never replaces the dashboard during startup.
 - **`utils/serverOrigin.ts`** resolves the backend origin: `VITE_SOCKET_URL` if
   set, otherwise `http://localhost:8080` when running on the Vite dev port
   (`5173`), otherwise the page's own origin (the production case, where the

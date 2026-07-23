@@ -1,8 +1,32 @@
 """Tests for the kiosk browser rendering-path configuration."""
 
 import json
+import re
+import struct
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+
+def _bash_function_body(source, function_name):
+    """Return a Bash function body without confusing it with its definition."""
+    declaration = re.search(
+        rf"(?m)^{re.escape(function_name)}\(\) \{{[ \t]*$",
+        source,
+    )
+    assert declaration is not None, f"missing Bash function: {function_name}"
+
+    body_start = declaration.end()
+    body_end = body_start
+    depth = 1
+    for line in source[body_start:].splitlines(keepends=True):
+        # Parameter expansions contain balanced braces, so tracking the net
+        # brace depth remains sufficient for these shell scripts.
+        depth += line.count("{") - line.count("}")
+        if depth == 0:
+            return source[body_start:body_end]
+        body_end += len(line)
+
+    raise AssertionError(f"unterminated Bash function: {function_name}")
 
 
 def _apply_calibration(matrix, point):
@@ -33,16 +57,15 @@ def test_kiosk_prefers_native_wayland_and_reduced_motion():
     assert "--force-prefers-reduced-motion" in browser_script
     assert "--password-store=basic" in browser_script
     assert "--user-data-dir=" in browser_script
-    assert "http://localhost:8080/?autolaunch=1" in browser_script
+    assert 'KIOSK_URL="${1:-http://localhost:8080/}"' in browser_script
+    assert "?autolaunch=1" not in browser_script
     assert "--disable-extensions-except=" in browser_script
     assert "--load-extension=" in browser_script
 
 
 def test_kiosk_fingerprints_extension_source_to_avoid_stale_service_workers():
     repo_root = Path(__file__).resolve().parents[1]
-    browser_script = (repo_root / "scripts/open-kiosk-browser.sh").read_text(
-        encoding="utf-8"
-    )
+    browser_script = (repo_root / "scripts/open-kiosk-browser.sh").read_text(encoding="utf-8")
 
     assert "EXTENSION_FINGERPRINT" in browser_script
     assert "EXTENSION_RUNTIME_DIR" in browser_script
@@ -58,7 +81,8 @@ def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
     assert 'HEALTH_URL="${GOLF_ONE_SERVER_HEALTH_URL:-http://localhost:8080}"' in launcher
     assert "curl -fsS" in launcher
     assert 'exec "$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL"' in launcher
-    assert "http://localhost:8080/?autolaunch=1" in launcher
+    assert 'KIOSK_URL="${GOLF_ONE_KIOSK_URL:-http://localhost:8080/}"' in launcher
+    assert "?autolaunch=1" not in launcher
     assert "DEFAULT_ARGS=(--mock --sim)" in launcher
     assert "udevadm info -q property" in launcher
     assert "ID_VENDOR_ID=0483" in launcher
@@ -95,16 +119,356 @@ def test_session_installer_disables_raspberry_pi_autotouch_rewriter():
     installer = (repo_root / "scripts/setup/install-golf-one-session.sh").read_text(
         encoding="utf-8"
     )
-    override = (repo_root / "scripts/setup/autotouch.desktop").read_text(
-        encoding="utf-8"
-    )
+    override = (repo_root / "scripts/setup/autotouch.desktop").read_text(encoding="utf-8")
 
     assert 'AUTOSTART_DIR="$HOME/.config/autostart"' in installer
     assert (
-        'install -m 0644 "$SCRIPT_DIR/autotouch.desktop" '
-        '"$AUTOSTART_DIR/autotouch.desktop"'
+        'install -m 0644 "$SCRIPT_DIR/autotouch.desktop" "$AUTOSTART_DIR/autotouch.desktop"'
     ) in installer
     assert "Hidden=true" in override
+
+
+def test_appliance_session_covers_the_pi_desktop_until_golf_one_maps():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
+        encoding="utf-8"
+    )
+    session_entry = (repo_root / "scripts/setup/golf-one-wayland.desktop").read_text(
+        encoding="utf-8"
+    )
+    compositor = (repo_root / "scripts/start-appliance-session-compositor.sh").read_text(
+        encoding="utf-8"
+    )
+    session = (repo_root / "scripts/run-appliance-session.sh").read_text(encoding="utf-8")
+    loading_page = (repo_root / "scripts/setup/kiosk-loading.html").read_text(encoding="utf-8")
+    cover = repo_root / "scripts/setup/session-cover.png"
+
+    assert "/usr/share/wayland-sessions/golf-one.desktop" in installer
+    assert "Goodix Capacitive TouchScreen" in installer
+    assert "0 -1 1 1 0 0" in installer
+    assert re.search(r"(?m)^Exec=/(?:home|usr/local)/.+$", session_entry)
+    assert '--config-dir "$SESSION_CONFIG_DIR"' in compositor
+    assert "--merge-config" not in compositor
+
+    # Only calls in main() establish runtime order. Looking at the whole source
+    # would accidentally compare function-definition order instead.
+    main_body = _bash_function_body(session, "main")
+    cover_ready = main_body.index("show_session_cover")
+    stale_function = next(
+        name
+        for name in ("stop_stale_profile_browsers", "stop_stale_kiosk_browser")
+        if name in main_body
+    )
+    stale_browser_stopped = main_body.index(stale_function)
+    paint_listener = main_body.index("start_loading_page_ready_server")
+    loading_browser = main_body.index('open-kiosk-browser.sh" "$BOOT_PAGE_URL"')
+    paint_waiter = main_body.index("wait_for_loading_page_ready")
+    dashboard_started = main_body.index('launch-golf-one.sh"')
+    paint_confirmed = main_body.index('wait "$COVER_WATCHER_PID"')
+    desktop_started = main_body.index("start_raspberry_pi_desktop", paint_confirmed)
+    cover_dismissed = main_body.index("dismiss_session_cover", desktop_started)
+    assert (
+        cover_ready
+        < stale_browser_stopped
+        < paint_listener
+        < loading_browser
+        < paint_waiter
+        < dashboard_started
+        < paint_confirmed
+        < desktop_started
+        < cover_dismissed
+    )
+    assert "--ready-fd" in session
+    assert "/usr/bin/lxsession-xdg-autostart" in session
+    assert "/usr/bin/pcmanfm-pi" in session
+    assert "/usr/bin/wf-panel-pi" in session
+    assert "http://localhost:8080/" in session
+    assert "?autolaunch=1" not in session
+
+    assert "Golf One is starting" in loading_page
+    assert "http://localhost:8080/" in loading_page
+    assert "http://127.0.0.1:38917/ready" in loading_page
+    assert loading_page.count("window.requestAnimationFrame") >= 2
+    assert "OpenGolfSim" not in loading_page
+
+    header = cover.read_bytes()[:24]
+    assert header[:8] == b"\x89PNG\r\n\x1a\n"
+    assert struct.unpack(">II", header[16:24]) == (1920, 720)
+
+
+def test_appliance_cover_is_fail_closed_and_tracks_the_exact_swaylock_process():
+    repo_root = Path(__file__).resolve().parents[1]
+    session = (repo_root / "scripts/run-appliance-session.sh").read_text(encoding="utf-8")
+    show_cover = _bash_function_body(session, "show_session_cover")
+    dismiss_cover = _bash_function_body(session, "dismiss_session_cover")
+    main_body = _bash_function_body(session, "main")
+
+    for prerequisite in (
+        r"if \[ ! -x /usr/bin/swaylock \]; then",
+        r'if \[ ! -f "\$COVER_IMAGE" \]; then',
+    ):
+        guard = re.search(
+            rf"(?ms){prerequisite}(?P<body>.*?)^[ \t]*fi[ \t]*$",
+            show_cover,
+        )
+        assert guard is not None
+        assert "return 1" in guard.group("body")
+
+    # Running swaylock in the background gives us the PID of the exact process
+    # that owns the cover. A global pgrep can select an unrelated/stale lock.
+    assert "--daemonize" not in show_cover
+    assert "pgrep" not in show_cover
+    assert re.search(
+        r'(?s)/usr/bin/swaylock.*?--ready-fd 3.*?3>"\$COVER_READY_FILE"[ \t]*&',
+        show_cover,
+    )
+    pid_capture = re.search(r'(?P<variable>COVER_PID|cover_pid)=(?:"\$!"|\$!)', show_cover)
+    assert pid_capture is not None
+    pid_variable = pid_capture.group("variable")
+    ready_check = show_cover.index('[ -s "$COVER_READY_FILE" ]')
+    live_check = show_cover.index(f'kill -0 "${pid_variable}"')
+    pid_write = show_cover.index(f'"${pid_variable}" >"$COVER_PID_FILE"')
+    assert pid_capture.start() < ready_check
+    assert pid_capture.start() < live_check
+    assert pid_capture.start() < pid_write
+    assert (
+        f'kill "${pid_variable}"' in show_cover or f'stop_exact_pid "${pid_variable}"' in show_cover
+    )
+    assert "return 1" in show_cover
+
+    # A missing or unready cover must stop startup before desktop content can
+    # be exposed. Recovery remains possible from SSH.
+    fail_closed = re.search(
+        r"(?ms)if ! show_session_cover; then(?P<body>.*?)^[ \t]*fi[ \t]*$",
+        main_body,
+    )
+    assert fail_closed is not None
+    assert "exit 1" in fail_closed.group("body") or "while :;" in fail_closed.group("body")
+
+    assert (
+        'cat "/proc/$COVER_PID/comm"' in dismiss_cover
+        or 'cat "/proc/$cover_pid/comm"' in dismiss_cover
+    )
+    assert (
+        'kill "$COVER_PID"' in dismiss_cover
+        or 'stop_exact_pid "$COVER_PID"' in dismiss_cover
+        or 'kill "$cover_pid"' in dismiss_cover
+        or 'stop_exact_pid "$cover_pid"' in dismiss_cover
+    )
+    assert "pgrep" not in dismiss_cover
+    assert "pkill" not in dismiss_cover
+    assert "killall" not in dismiss_cover
+
+
+def test_appliance_removes_only_stale_profile_processes_before_opening_browser():
+    repo_root = Path(__file__).resolve().parents[1]
+    session = (repo_root / "scripts/run-appliance-session.sh").read_text(encoding="utf-8")
+    main_body = _bash_function_body(session, "main")
+    cleanup_name = next(
+        name
+        for name in ("stop_stale_profile_browsers", "stop_stale_kiosk_browser")
+        if re.search(rf"(?m)^{name}\(\) \{{", session)
+    )
+    cleanup = _bash_function_body(session, cleanup_name)
+
+    chromium_pattern = "chromium.*--user-data-dir=$KIOSK_PROFILE_DIR"
+    chrome_pattern = "chrome.*--user-data-dir=$KIOSK_PROFILE_DIR"
+
+    if "find_profile_browser_pids" in cleanup:
+        finder = _bash_function_body(session, "find_profile_browser_pids")
+        assert "for cmdline in /proc/[0-9]*/cmdline" in finder
+        assert "chromium*|chrome*" in finder
+        assert 'grep -Fxq -- "--user-data-dir=$KIOSK_PROFILE_DIR"' in finder
+        assert "stop_exact_pid" in cleanup
+        assert cleanup.count("find_profile_browser_pids") >= 2
+    else:
+        assert f'pkill -f "{chromium_pattern}"' in cleanup
+        assert f'pkill -f "{chrome_pattern}"' in cleanup
+        assert f'pgrep -f "{chromium_pattern}"' in cleanup
+        assert f'pgrep -f "{chrome_pattern}"' in cleanup
+
+    assert "pkill -x chromium" not in cleanup
+    assert "pkill -x chrome" not in cleanup
+    assert "killall" not in cleanup
+
+    cleanup_call = main_body.index(cleanup_name)
+    browser_open = main_body.index('open-kiosk-browser.sh" "$BOOT_PAGE_URL"')
+    assert cleanup_call < browser_open
+    cleanup_guard = re.search(
+        rf"(?ms)if ! {cleanup_name}; then(?P<body>.*?)^[ \t]*fi[ \t]*$",
+        main_body,
+    )
+    assert cleanup_guard is not None
+    assert "exit 1" in cleanup_guard.group("body") or "while :;" in cleanup_guard.group("body")
+
+
+def test_appliance_session_has_one_chromium_owner_and_one_profile():
+    repo_root = Path(__file__).resolve().parents[1]
+    session = (repo_root / "scripts/run-appliance-session.sh").read_text(encoding="utf-8")
+    launcher = (repo_root / "scripts/launch-golf-one.sh").read_text(encoding="utf-8")
+    start_kiosk = (repo_root / "scripts/start-kiosk.sh").read_text(encoding="utf-8")
+    browser = (repo_root / "scripts/open-kiosk-browser.sh").read_text(encoding="utf-8")
+    main_body = _bash_function_body(session, "main")
+
+    profile_defaults = []
+    for source, variable in (
+        (session, "KIOSK_PROFILE_DIR"),
+        (start_kiosk, "KIOSK_PROFILE_DIR"),
+        (browser, "PROFILE_DIR"),
+    ):
+        profile = re.search(
+            rf'(?m)^{variable}="\$\{{GOLF_ONE_BROWSER_PROFILE_DIR:-(?P<path>[^}}]+)\}}"$',
+            source,
+        )
+        assert profile is not None
+        profile_defaults.append(profile.group("path"))
+    assert profile_defaults == ["$HOME/.config/golf-one-kiosk/chromium"] * 3
+
+    # The appliance session opens the loading page once. The launcher and
+    # start-kiosk server path inherit the explicit ownership flag and therefore
+    # cannot race another Chromium ProcessSingleton for the same profile.
+    assert main_body.count('open-kiosk-browser.sh"') == 1
+    owner_flag = main_body.index("GOLF_ONE_BROWSER_ALREADY_RUNNING=1")
+    launcher_call = main_body.index('launch-golf-one.sh"')
+    assert owner_flag < launcher_call
+
+    launcher_open = _bash_function_body(launcher, "open_kiosk_browser")
+    launcher_guard = launcher_open.index('if [ "$BROWSER_ALREADY_RUNNING" = "1" ]')
+    launcher_exec = launcher_open.index('exec "$SCRIPT_DIR/open-kiosk-browser.sh"')
+    assert launcher_guard < launcher_exec
+    assert "return 0" in launcher_open[launcher_guard:launcher_exec]
+
+    reuse_branch = start_kiosk.index('if [ "${GOLF_ONE_BROWSER_ALREADY_RUNNING:-0}" = "1" ]; then')
+    branch_else = start_kiosk.index("\nelse", reuse_branch)
+    browser_call = start_kiosk.index('"$SCRIPT_DIR/open-kiosk-browser.sh"', branch_else)
+    branch_end = start_kiosk.index("\nfi", browser_call)
+    assert reuse_branch < branch_else < browser_call < branch_end
+
+
+def test_appliance_installer_edits_and_verifies_effective_lightdm_configuration():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'LIGHTDM_MAIN="/etc/lightdm/lightdm.conf"' in installer
+    assert "golf-one-lightdm.conf" not in installer
+    assert 'LEGACY_LIGHTDM_TARGET="/etc/lightdm/lightdm.conf.d/' in installer
+    assert 'rm -f "$LEGACY_LIGHTDM_TARGET"' in installer
+    assert not re.search(
+        r'install\b[^\n]*"\$LEGACY_LIGHTDM_TARGET"',
+        installer,
+    )
+    assert 'cp -a "$LIGHTDM_MAIN" "$BACKUP_DIR/lightdm.conf"' in installer
+    assert "autologin-session=golf-one" in installer
+
+    write_main = re.search(
+        r'(?ms)install\b.{0,240}"\$LIGHTDM_TEMP"[ \t\\\n]+"\$LIGHTDM_MAIN"',
+        installer,
+    )
+    assert write_main is not None
+    effective_check = installer.index("--show-config", write_main.end())
+    verification = installer[effective_check:]
+    assert 'if ! EFFECTIVE_LIGHTDM="$("$LIGHTDM_BIN" --show-config 2>&1)"; then' in installer
+    assert "autologin-session=golf-one" in verification
+    assert "exit 1" in verification
+    assert re.search(
+        r'(?:cp -a|install -m 0644) "\$BACKUP_DIR/lightdm\.conf" "\$LIGHTDM_MAIN"',
+        verification,
+    )
+
+
+def test_appliance_installer_disables_autotouch_for_the_target_user():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
+        encoding="utf-8"
+    )
+    override = (repo_root / "scripts/setup/autotouch.desktop").read_text(encoding="utf-8")
+
+    assert "Hidden=true" in override
+    assert 'AUTOSTART_DIR="$TARGET_HOME/.config/autostart"' in installer
+    assert re.search(
+        r'(?ms)install -d\b.{0,180}-o "\$TARGET_USER".{0,180}"\$AUTOSTART_DIR"',
+        installer,
+    )
+    assert re.search(
+        r'(?ms)install\b.{0,220}-o "\$TARGET_USER".{0,220}'
+        r'"\$SCRIPT_DIR/autotouch\.desktop".{0,120}"\$AUTOTOUCH_TARGET"',
+        installer,
+    )
+
+
+def test_appliance_session_entry_cannot_point_at_a_different_user_or_checkout():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
+        encoding="utf-8"
+    )
+    session_entry = (repo_root / "scripts/setup/golf-one-wayland.desktop").read_text(
+        encoding="utf-8"
+    )
+    fixed_project = "/home/openflight/golf-one-openflight"
+    exec_match = re.search(r"(?m)^Exec=(?P<target>/\S+)$", session_entry)
+    assert exec_match is not None
+    exec_target = exec_match.group("target")
+
+    if exec_target == f"{fixed_project}/scripts/start-appliance-session-compositor.sh":
+        assert 'TARGET_USER="openflight"' in installer
+        assert "GOLF_ONE_APPLIANCE_USER" not in installer
+        assert "SUDO_USER" not in installer
+        assert f'SUPPORTED_PROJECT_DIR="{fixed_project}"' in installer
+        location_guard = re.search(
+            r'(?ms)if \[ "\$PROJECT_DIR" != "\$SUPPORTED_PROJECT_DIR" \]; then'
+            r"(?P<body>.*?)^[ \t]*fi[ \t]*$",
+            installer,
+        )
+        assert location_guard is not None
+        assert "exit 1" in location_guard.group("body")
+    elif exec_target.startswith("/usr/local/"):
+        # A system-owned entry is portable across home directories only when
+        # the installer creates that exact target and links it to the checkout
+        # whose adjacent appliance-session script it will execute.
+        assert f'SESSION_COMMAND="{exec_target}"' in installer
+        assert (
+            'ln -s "$PROJECT_DIR/scripts/start-appliance-session-compositor.sh" "$SESSION_COMMAND"'
+        ) in installer
+    else:
+        # A portable installer must render both the selected user and checkout
+        # into the session entry before installing it.
+        assert "@GOLF_ONE_PROJECT_DIR@" in session_entry
+        assert "@GOLF_ONE_USER@" in session_entry
+        assert "SESSION_ENTRY_TEMP" in installer
+        assert "GOLF_ONE_PROJECT_DIR" in installer
+        assert "GOLF_ONE_USER" in installer
+        assert '"$SESSION_ENTRY_TEMP" "$WAYLAND_TARGET"' in installer
+
+
+def test_appliance_installer_generates_one_exact_goodix_rule_without_output_mapping():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
+        encoding="utf-8"
+    )
+
+    # Remove every inherited Goodix touch/device rule before appending exactly
+    # one calibrated libinput device. This remains correct even when the base
+    # Raspberry Pi rc.xml changes or already contains duplicate rules.
+    assert (
+        "-d '/labwc:openbox_config/labwc:touch[@deviceName=\"Goodix Capacitive TouchScreen\"]'"
+    ) in installer
+    assert (
+        "-d '/labwc:openbox_config/labwc:libinput/labwc:device"
+        '[@category="Goodix Capacitive TouchScreen"]\''
+    ) in installer
+    assert installer.count("-n category -v 'Goodix Capacitive TouchScreen'") == 1
+    assert installer.count("-n calibrationMatrix -v '0 -1 1 1 0 0'") == 1
+    assert "-n mapToOutput" not in installer
+    assert "GOODIX_DEVICE_COUNT" in installer
+    assert "GOODIX_TOUCH_COUNT" in installer
+    assert "GOODIX_MAP_COUNT" in installer
+    assert "GOODIX_MATRIX" in installer
+    assert '[ "$GOODIX_DEVICE_COUNT" != "1" ]' in installer
+    assert '[ "$GOODIX_TOUCH_COUNT" != "0" ]' in installer
+    assert '[ "$GOODIX_MAP_COUNT" != "0" ]' in installer
+    assert '[ "$GOODIX_MATRIX" != "0 -1 1 1 0 0" ]' in installer
 
 
 def test_waveshare_touch_calibration_cancels_reported_corner_rotation():
@@ -199,9 +563,7 @@ def test_simulator_extension_manifest_rolls_out_browser_relay_worker():
 
 def test_simulator_extension_accepts_only_official_or_loopback_game_pages():
     repo_root = Path(__file__).resolve().parents[1]
-    background = (repo_root / "browser-extension/background.js").read_text(
-        encoding="utf-8"
-    )
+    background = (repo_root / "browser-extension/background.js").read_text(encoding="utf-8")
 
     assert "isSimulatorSender" in background
     assert "https://app.opengolfsim.com" in background
@@ -233,9 +595,9 @@ def test_simulator_extension_closes_stale_spa_games_and_recovers_visual_test():
 
 def test_offline_fuse_installer_is_pinned_and_keeps_third_party_code_out_of_repo():
     repo_root = Path(__file__).resolve().parents[1]
-    installer = (
-        repo_root / "scripts/setup/install-offline-fuse-range.sh"
-    ).read_text(encoding="utf-8")
+    installer = (repo_root / "scripts/setup/install-offline-fuse-range.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert "6f10092c4444a538dd869d495eb2cb45697a5fb5" in installer
     assert "https://github.com/OpenGolfSim/fuse.git" in installer

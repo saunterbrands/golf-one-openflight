@@ -8,7 +8,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-KIOSK_URL="${1:-http://localhost:8080/?autolaunch=1}"
+KIOSK_URL="${1:-http://localhost:8080/}"
 PROFILE_DIR="${GOLF_ONE_BROWSER_PROFILE_DIR:-$HOME/.config/golf-one-kiosk/chromium}"
 EXTENSION_DIR="${GOLF_ONE_BROWSER_EXTENSION_DIR:-$PROJECT_DIR/browser-extension}"
 EXTENSION_CACHE_ROOT="${GOLF_ONE_BROWSER_EXTENSION_CACHE_DIR:-$HOME/.cache/golf-one-kiosk/extensions}"
