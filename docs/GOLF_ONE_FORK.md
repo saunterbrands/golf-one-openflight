@@ -52,6 +52,19 @@ The Raspberry Pi desktop launcher is tracked at
 are under `scripts/setup/plymouth/` and
 `scripts/setup/install-golf-one-plymouth.sh`.
 
+Install the branded boot screen once on each Raspberry Pi, then reboot:
+
+```bash
+cd /home/openflight/golf-one-openflight
+sudo ./scripts/setup/install-golf-one-plymouth.sh
+sudo reboot
+```
+
+The installer keeps a timestamped backup under
+`/var/backups/golf-one/boot-splash-*`, selects the independent `golf-one`
+Plymouth theme, suppresses Raspberry Pi firmware and kernel branding, and
+rebuilds the initramfs so the splash is available during early boot.
+
 The Pi owns a loopback-only OpenGolfSim shot relay, while a bundled Chromium
 extension posts those shots into the active FUSE game and returns completed
 results. The extension also adds Golf One status/setup, a Dashboard shortcut,

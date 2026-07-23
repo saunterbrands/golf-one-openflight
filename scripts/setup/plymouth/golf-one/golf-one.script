@@ -1,5 +1,5 @@
-Window.SetBackgroundTopColor(0.005, 0.012, 0.008);
-Window.SetBackgroundBottomColor(0.005, 0.012, 0.008);
+Window.SetBackgroundTopColor(0.090, 0.227, 0.188);
+Window.SetBackgroundBottomColor(0.090, 0.227, 0.188);
 
 splash_image = Image("splash.png");
 splash_sprite = Sprite(splash_image);
