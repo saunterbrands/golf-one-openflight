@@ -2,6 +2,6 @@
 # Transform 90 is the installed 180-degree display orientation.
 wlr-randr --output DSI-2 --transform 90
 
-# Launch Golf One after the Wayland desktop is ready. Mock mode keeps the
-# software usable until production launch-monitor hardware is connected.
-sh -lc 'if ! pgrep -f "/home/openflight/golf-one-openflight/.venv/bin/openflight-server" >/dev/null; then cd /home/openflight/golf-one-openflight && exec ./scripts/launch-golf-one.sh --mock --sim >> /home/openflight/golf-one-kiosk.log 2>&1; fi' &
+# Launch Golf One after the Wayland desktop is ready. The launcher selects real
+# radar mode only when it positively identifies the OPS243-A.
+sh -lc 'cd /home/openflight/golf-one-openflight && exec ./scripts/launch-golf-one.sh >> /home/openflight/golf-one-kiosk.log 2>&1' &

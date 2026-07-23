@@ -84,10 +84,12 @@ opengolfsim_config_lock = threading.Lock()
 display_config_lock = threading.Lock()
 
 DISPLAY_MODE_URLS = {
-    "simulator": "https://app.opengolfsim.com/account/simulator",
+    "simulator": "/simulator/launch",
     "launch_monitor": "/display",
 }
 DEFAULT_DISPLAY_MODE = "simulator"
+OPENGOLFSIM_WEB_URL = "https://app.opengolfsim.com/account/simulator"
+OFFLINE_FUSE_URL = "/offline-simulator"
 OPENGOLFSIM_WEB_FIELDS = [
     "ball_speed",
     "vla",
@@ -1006,6 +1008,31 @@ def _display_mode_payload() -> dict:
     return {"mode": mode, "url": DISPLAY_MODE_URLS[mode]}
 
 
+def _offline_fuse_root() -> Path:
+    """Return the untracked, appliance-local FUSE installation directory."""
+
+    override = os.environ.get("GOLF_ONE_OFFLINE_FUSE_DIR")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".local" / "share" / "golf-one" / "fuse" / "current"
+
+
+def _offline_fuse_available() -> bool:
+    """Report whether the locally built practice range entry point exists."""
+
+    return (_offline_fuse_root() / "examples" / "range" / "index.html").is_file()
+
+
+def _opengolfsim_runtime_payload() -> dict:
+    """Describe the official online and appliance-local simulator runtimes."""
+
+    return {
+        "online_url": OPENGOLFSIM_WEB_URL,
+        "offline_url": OFFLINE_FUSE_URL,
+        "offline_available": _offline_fuse_available(),
+    }
+
+
 def _display_write_origin_allowed() -> bool:
     """Allow browser writes only from a page served by this Golf One host."""
 
@@ -1146,6 +1173,121 @@ def display():
     return send_from_directory(_react_app_dir(), "index.html")
 
 
+@app.route("/simulator/launch")
+def simulator_launcher():
+    """Open hosted OpenGolfSim when reachable, otherwise use the local range."""
+
+    launcher = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Golf One Simulator</title>
+    <style>
+      html,body {{ width:100%; height:100%; margin:0; }}
+      body {{
+        display:grid; place-items:center; color:#f6f4ed; background:#06110c;
+        font:900 24px/1.2 Inter,system-ui,sans-serif; letter-spacing:-.03em;
+      }}
+      small {{ display:block; margin-top:12px; color:#96e647; font-size:13px; }}
+    </style>
+  </head>
+  <body>
+    <div>Opening Golf One Simulator<small>ONLINE COURSES · OFFLINE PRACTICE RANGE</small></div>
+    <script>
+      const onlineUrl = {json.dumps(OPENGOLFSIM_WEB_URL)};
+      const offlineUrl = {json.dumps(OFFLINE_FUSE_URL)};
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 5000);
+      fetch(onlineUrl, {{ mode: 'no-cors', cache: 'no-store', signal: controller.signal }})
+        .then(() => window.location.replace(onlineUrl))
+        .catch(() => window.location.replace(offlineUrl))
+        .finally(() => window.clearTimeout(timeout));
+    </script>
+  </body>
+</html>"""
+    return Response(launcher, mimetype="text/html")
+
+
+@app.route("/offline-simulator")
+def offline_simulator():
+    """Host the account-free local FUSE practice range inside a game frame."""
+
+    if not _offline_fuse_available():
+        unavailable = """<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Golf One Offline Range</title></head>
+  <body style="margin:0;padding:48px;color:#f6f4ed;background:#06110c;font:800 20px Inter,system-ui,sans-serif">
+    <h1 style="color:#96e647">Offline Practice Range is not installed</h1>
+    <p>Connect this Golf One to the internet once and run the offline FUSE installer.</p>
+    <p><a href="/" style="color:#96e647">Return to Golf One</a></p>
+  </body>
+</html>"""
+        return Response(unavailable, status=503, mimetype="text/html")
+
+    wrapper = """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <title>Golf One Offline Practice Range</title>
+    <style>
+      html,body,iframe { width:100%; height:100%; margin:0; border:0; overflow:hidden; background:#06110c; }
+      iframe { display:block; }
+    </style>
+  </head>
+  <body>
+    <iframe id="golf-one-range" title="fuse" src="/fuse/examples/range/index.html" allow="autoplay; fullscreen; gamepad"></iframe>
+    <script>
+      const rangeFrame = document.getElementById("golf-one-range");
+      let rangeConfigured = false;
+      const setupMessage = {
+        type: "setup",
+        setupData: {
+          units: "imperial",
+          qualityLevel: 1,
+          players: [{
+            name: "Golf One Player",
+            id: "golf-one-player",
+            clubs: [
+              { fullName: "Driver", name: "DR", id: "DR", distance: 250 },
+              { fullName: "5 Iron", name: "5i", id: "5I", distance: 175 },
+              { fullName: "Pitching Wedge", name: "PW", id: "PW", distance: 120 },
+              { fullName: "Putter", name: "P", id: "PT", distance: 0 }
+            ]
+          }],
+          cameraOffset: 0,
+          puttingEnabled: false,
+          gimmesEnabled: true,
+          gimmeDistances: [10, 20],
+          elevation: 0,
+          gameMode: 2
+        },
+        gameData: {}
+      };
+      window.addEventListener("message", (event) => {
+        if (event.source !== rangeFrame.contentWindow || event.origin !== window.location.origin) return;
+        if (event.data?.type !== "ready" || rangeConfigured) return;
+        rangeConfigured = true;
+        rangeFrame.contentWindow.postMessage(setupMessage, window.location.origin);
+      });
+    </script>
+  </body>
+</html>"""
+    response = Response(wrapper, mimetype="text/html")
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/fuse/<path:path>")
+def offline_fuse_files(path):
+    """Serve only files from the untracked local FUSE installation."""
+
+    if not _offline_fuse_available():
+        return {"error": "Offline Practice Range is not installed."}, 404
+    return send_from_directory(_offline_fuse_root(), path)
+
+
 @app.route("/<path:path>")
 def static_files(path):
     """Serve static files."""
@@ -1186,6 +1328,13 @@ def api_opengolfsim():
     opengolfsim_web_bridge.configure_email(email)
     opengolfsim_web_bridge.start()
     return _opengolfsim_status_payload(), 200
+
+
+@app.route("/api/opengolfsim/runtime")
+def api_opengolfsim_runtime():
+    """Report the online simulator and installed offline fallback."""
+
+    return _opengolfsim_runtime_payload(), 200
 
 
 @app.route("/api/opengolfsim/browser/session", methods=["POST"])

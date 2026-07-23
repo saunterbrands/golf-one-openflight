@@ -24,10 +24,16 @@ async function request(path, options = {}) {
   return data;
 }
 
-function isOpenGolfSimSender(sender) {
+const SIMULATOR_ORIGINS = new Set([
+  'https://app.opengolfsim.com',
+  'http://127.0.0.1:8080',
+  'http://localhost:8080',
+]);
+
+function isSimulatorSender(sender) {
   try {
     const senderUrl = sender?.origin || sender?.url || sender?.tab?.url || '';
-    return new URL(senderUrl).origin === 'https://app.opengolfsim.com';
+    return SIMULATOR_ORIGINS.has(new URL(senderUrl).origin);
   } catch {
     return false;
   }
@@ -50,7 +56,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       operation = request('/api/shutdown', { method: 'POST' });
       break;
     case 'golf-one-game-session':
-      if (!isOpenGolfSimSender(sender)) return false;
+      if (!isSimulatorSender(sender)) return false;
       operation = request('/api/opengolfsim/browser/session', {
         method: 'POST',
         body: JSON.stringify({
@@ -60,7 +66,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       break;
     case 'golf-one-game-poll':
-      if (!isOpenGolfSimSender(sender)) return false;
+      if (!isSimulatorSender(sender)) return false;
       operation = request('/api/opengolfsim/browser/poll', {
         method: 'POST',
         body: JSON.stringify({
@@ -70,7 +76,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       break;
     case 'golf-one-game-ack':
-      if (!isOpenGolfSimSender(sender)) return false;
+      if (!isSimulatorSender(sender)) return false;
       operation = request('/api/opengolfsim/browser/ack', {
         method: 'POST',
         body: JSON.stringify({
@@ -82,7 +88,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       break;
     case 'golf-one-game-test-shot':
-      if (!isOpenGolfSimSender(sender)) return false;
+      if (!isSimulatorSender(sender)) return false;
       operation = request('/api/opengolfsim/browser/test-shot', {
         method: 'POST',
       });

@@ -3,8 +3,13 @@ import { getServerOrigin } from '../utils/serverOrigin';
 import './OpenGolfSimView.css';
 
 const OPEN_GOLF_SIM_WEB_URL = 'https://app.opengolfsim.com/account/simulator';
+const OPEN_GOLF_SIM_LAUNCH_URL = '/simulator/launch';
+const OFFLINE_PRACTICE_RANGE_URL = '/offline-simulator';
 const DISPLAY_MODE_API_URL = `${getServerOrigin()}/api/display-mode`;
 const OPEN_GOLF_SIM_API_URL = `${getServerOrigin()}/api/opengolfsim`;
+const METERS_TO_YARDS = 1.0936133;
+
+export const fuseMetersToYards = (meters: number) => meters * METERS_TO_YARDS;
 
 type BridgeState = 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
@@ -32,7 +37,9 @@ const EMPTY_STATUS: OpenGolfSimStatus = {
 const statusCopy = (status: OpenGolfSimStatus) => {
   if (status.browser?.active && status.browser.game_state === 'ready') {
     const carry = status.browser.last_delivery?.result?.carry;
-    return typeof carry === 'number' ? `Game ready — last carry ${Math.round(carry)} yd` : 'OpenGolfSim game ready';
+    return typeof carry === 'number'
+      ? `Game ready — last carry ${Math.round(fuseMetersToYards(carry))} yd`
+      : 'OpenGolfSim game ready';
   }
   if (status.browser?.active && (status.browser.game_state === 'queued' || status.browser.game_state === 'in_flight')) {
     return 'Shot is playing in OpenGolfSim';
@@ -79,12 +86,8 @@ export function OpenGolfSimView() {
           }
         }
 
-        await fetch(OPEN_GOLF_SIM_WEB_URL, {
-          mode: 'no-cors',
-          signal: controller.signal,
-        });
         window.sessionStorage.setItem('golf-one:opengolfsim-autolaunched', '1');
-        window.location.assign(OPEN_GOLF_SIM_WEB_URL);
+        window.location.assign(OPEN_GOLF_SIM_LAUNCH_URL);
       } catch {
         setFeedback('The default display could not open. Check Wi-Fi or choose another display in Settings.');
       } finally {
@@ -159,8 +162,12 @@ export function OpenGolfSimView() {
     }
   };
 
-  const launchSimulator = () => {
+  const launchOnlineSimulator = () => {
     window.location.assign(OPEN_GOLF_SIM_WEB_URL);
+  };
+
+  const launchOfflineRange = () => {
+    window.location.assign(OFFLINE_PRACTICE_RANGE_URL);
   };
 
   return (
@@ -179,6 +186,10 @@ export function OpenGolfSimView() {
         <p className="ogs-view__intro">
           OpenGolfSim runs full-screen in this kiosk. When a course opens, Golf One connects it directly to the launch
           monitor on this Pi—no separate device pairing is required.
+        </p>
+        <p className="ogs-view__session-note">
+          A normal sign-in stays in this Pi&apos;s private browser profile across restarts. If you are online and signed
+          out, OpenGolfSim shows its official login. Golf One never saves your password.
         </p>
 
         <form className="ogs-view__connect" onSubmit={saveAccount}>
@@ -213,9 +224,12 @@ export function OpenGolfSimView() {
         </p>
 
         <div className="ogs-view__launch-actions">
-          <button type="button" className="ogs-view__launch" onClick={launchSimulator}>
-            Launch OpenGolfSim
+          <button type="button" className="ogs-view__launch" onClick={launchOnlineSimulator}>
+            Open OpenGolfSim Online
             <span aria-hidden="true">→</span>
+          </button>
+          <button type="button" className="ogs-view__test" onClick={launchOfflineRange}>
+            Offline Practice Range
           </button>
         </div>
       </div>

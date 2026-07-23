@@ -332,7 +332,7 @@ def test_display_mode_api_defaults_saves_and_reloads(server, monkeypatch, tmp_pa
     assert initial.status_code == 200
     assert initial.get_json() == {
         "mode": "simulator",
-        "url": "https://app.opengolfsim.com/account/simulator",
+        "url": "/simulator/launch",
     }
 
     saved = client.post("/api/display-mode", json={"mode": "launch_monitor"})
@@ -343,6 +343,68 @@ def test_display_mode_api_defaults_saves_and_reloads(server, monkeypatch, tmp_pa
 
     reloaded = client.get("/api/display-mode")
     assert reloaded.get_json() == {"mode": "launch_monitor", "url": "/display"}
+
+
+def test_offline_fuse_runtime_reports_and_serves_installed_range(
+    server, monkeypatch, tmp_path
+):
+    fuse_root = tmp_path / "fuse" / "current"
+    range_dir = fuse_root / "examples" / "range"
+    range_dir.mkdir(parents=True)
+    (range_dir / "index.html").write_text(
+        "<!doctype html><title>Local FUSE Range</title>",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GOLF_ONE_OFFLINE_FUSE_DIR", str(fuse_root))
+    client = server.app.test_client()
+
+    runtime = client.get("/api/opengolfsim/runtime")
+    assert runtime.status_code == 200
+    assert runtime.get_json() == {
+        "online_url": "https://app.opengolfsim.com/account/simulator",
+        "offline_url": "/offline-simulator",
+        "offline_available": True,
+    }
+
+    wrapper = client.get("/offline-simulator")
+    assert wrapper.status_code == 200
+    wrapper_html = wrapper.get_data(as_text=True)
+    assert 'title="fuse"' in wrapper_html
+    assert 'src="/fuse/examples/range/index.html"' in wrapper_html
+    assert 'type: "setup"' in wrapper_html
+    assert "qualityLevel: 1" in wrapper_html
+    assert 'name: "Golf One Player"' in wrapper_html
+
+    asset = client.get("/fuse/examples/range/index.html")
+    assert asset.status_code == 200
+    assert "Local FUSE Range" in asset.get_data(as_text=True)
+
+
+def test_offline_fuse_runtime_fails_clearly_when_range_is_not_installed(
+    server, monkeypatch, tmp_path
+):
+    monkeypatch.setenv(
+        "GOLF_ONE_OFFLINE_FUSE_DIR",
+        str(tmp_path / "missing-fuse"),
+    )
+    client = server.app.test_client()
+
+    assert client.get("/api/opengolfsim/runtime").get_json()["offline_available"] is False
+    unavailable = client.get("/offline-simulator")
+    assert unavailable.status_code == 503
+    assert "Offline Practice Range is not installed" in unavailable.get_data(
+        as_text=True
+    )
+
+
+def test_simulator_launcher_prefers_official_login_and_falls_back_local(server):
+    response = server.app.test_client().get("/simulator/launch")
+
+    assert response.status_code == 200
+    launcher = response.get_data(as_text=True)
+    assert "https://app.opengolfsim.com/account/simulator" in launcher
+    assert "/offline-simulator" in launcher
+    assert "mode: 'no-cors'" in launcher
 
 
 def test_display_mode_api_rejects_unknown_mode(server, monkeypatch, tmp_path):

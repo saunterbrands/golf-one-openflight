@@ -8,6 +8,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# Labwc starts desktop autostart commands with a minimal PATH. uv's standard
+# per-user install locations must be available before the dependency check.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 PORT=8080
 HOST="localhost"
 SERVER_PID=""

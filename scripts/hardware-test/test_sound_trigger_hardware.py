@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 """
-Direct hardware sound trigger test for SEN-14262 + Level Shifter + OPS243-A.
+Direct hardware sound trigger test for SEN-14262 + OPS243-A.
 
 This tests the direct hardware trigger path:
-    SEN-14262 GATE → Level Shifter → OPS243-A HOST_INT (J3 Pin 3)
+    SEN-14262 GATE → OPS243-A HOST_INT (J3 Pin 3)
 
 No Pi GPIO involved in the trigger path - purely hardware.
 The Pi just reads the I/Q data after the radar triggers.
 
 Wiring:
-    SEN-14262 VCC  → 3.3V (shared with level shifter LV)
+    SEN-14262 VCC  → Raspberry Pi 3.3V
     SEN-14262 GND  → GND (shared)
-    SEN-14262 GATE → Level Shifter LV1 (input)
-
-    Level Shifter LV  → 3.3V
-    Level Shifter HV  → 3.3V
-    Level Shifter GND → GND
-    Level Shifter HV1 → OPS243-A HOST_INT (J3 Pin 3)
+    SEN-14262 GATE → OPS243-A HOST_INT (J3 Pin 3)
+    OPS243-A GND    → GND (shared)
 
 Usage:
     uv run python scripts/test_sound_trigger_hardware.py
@@ -48,14 +44,13 @@ def main():
 
     print("=" * 70)
     print("  Direct Hardware Sound Trigger Test")
-    print("  (SEN-14262 GATE → Level Shifter → HOST_INT)")
+    print("  (SEN-14262 GATE → OPS243-A HOST_INT)")
     print("=" * 70)
     print()
     print("Wiring check:")
-    print("  SEN-14262 GATE → Level Shifter LV1")
-    print("  Level Shifter HV1 → OPS243-A HOST_INT (J3 Pin 3)")
+    print("  SEN-14262 GATE → OPS243-A HOST_INT (J3 Pin 3)")
+    print("  SEN-14262 VCC → Pi 3.3V")
     print("  All GND connected together")
-    print("  Level Shifter LV and HV both → 3.3V")
     print()
 
     # Connect to radar
@@ -78,7 +73,7 @@ def main():
 
     print("-" * 70)
     print("Ready for hardware sound triggers!")
-    print(f"  Trigger: SEN-14262 → Level Shifter → HOST_INT")
+    print("  Trigger: SEN-14262 → HOST_INT")
     print(f"  Pre-trigger: S#{args.pre_trigger}")
     print()
     print("Make a sound near the sensor... (Ctrl+C to quit)")
@@ -103,7 +98,7 @@ def main():
 
             if not response:
                 print(f"  Timeout after {wait_duration:.1f}s - no trigger received")
-                print("  Check wiring: Is the level shifter connected correctly?")
+                print("  Check wiring: Is GATE connected to J3 pin 3 with shared GND?")
                 print()
                 continue
 

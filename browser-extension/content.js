@@ -329,6 +329,7 @@
   let gameSessionRetryAttempt = 0;
   const DIRECT_RANGE_RECOVERY_MS = 15000;
   const GAME_SESSION_RETRY_MAX_MS = 15000;
+  const METERS_TO_YARDS = 1.0936133;
   const directRangeVerification = window.location.pathname.startsWith('/fuse/examples/range');
 
   const setGameState = (label, connectionState = 'connected') => {
@@ -560,8 +561,12 @@
       inFlightShot = null;
       void acknowledgeGameShot(sequence, 'completed', result).then((response) => {
         if (response.ok) {
-          const carry = Number(result.carry);
-          setGameState(Number.isFinite(carry) ? `${Math.round(carry)} yd complete` : 'Game ready');
+          const carryMeters = Number(result.carry);
+          setGameState(
+            Number.isFinite(carryMeters)
+              ? `${Math.round(carryMeters * METERS_TO_YARDS)} yd complete`
+              : 'Game ready'
+          );
         }
       });
     }
@@ -601,12 +606,12 @@
   const renderStatus = (status) => {
     const connectionState = status?.state || 'disconnected';
     const browserState = status?.browser?.game_state;
-    const completedCarry = Number(status?.browser?.last_delivery?.result?.carry);
+    const completedCarryMeters = Number(status?.browser?.last_delivery?.result?.carry);
     state.dataset.state = connectionState;
     state.textContent =
       status?.browser?.active && browserState === 'ready'
-        ? Number.isFinite(completedCarry)
-          ? `${Math.round(completedCarry)} yd complete`
+        ? Number.isFinite(completedCarryMeters)
+          ? `${Math.round(completedCarryMeters * METERS_TO_YARDS)} yd complete`
           : 'Game ready'
         : status?.browser?.active && (browserState === 'queued' || browserState === 'in_flight')
           ? 'Shot in play'

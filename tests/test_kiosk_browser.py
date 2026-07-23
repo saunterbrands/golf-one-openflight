@@ -23,6 +23,7 @@ def test_kiosk_prefers_native_wayland_and_reduced_motion():
     start_script = (repo_root / "scripts/start-kiosk.sh").read_text(encoding="utf-8")
     browser_script = (repo_root / "scripts/open-kiosk-browser.sh").read_text(encoding="utf-8")
 
+    assert 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' in start_script
     assert '"$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL" &' in start_script
     assert 'RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"' in browser_script
     assert 'for candidate in "$RUNTIME_DIR"/wayland-*' in browser_script
@@ -59,6 +60,12 @@ def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
     assert 'exec "$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL"' in launcher
     assert "http://localhost:8080/?autolaunch=1" in launcher
     assert "DEFAULT_ARGS=(--mock --sim)" in launcher
+    assert "udevadm info -q property" in launcher
+    assert "ID_VENDOR_ID=0483" in launcher
+    assert "GOLF_ONE_RADAR_PORT" in launcher
+    assert 'compgen -G "/dev/ttyACM*"' not in launcher
+    assert "DEFAULT_ARGS=(--sim)" in launcher
+    assert "flock -n 9" in launcher
     assert "Name=Golf One Simulator" in desktop
     assert "/home/openflight/golf-one-openflight/scripts/launch-golf-one.sh" in desktop
 
@@ -76,7 +83,8 @@ def test_session_installer_preserves_rotation_and_installs_recovery_launcher():
     assert 'install -m 0644 "$SCRIPT_DIR/labwc-rc.xml" "$LABWC_DIR/rc.xml"' in installer
     assert 'install -m 0755 "$SCRIPT_DIR/GolfOne.desktop"' in installer
     assert "wlr-randr --output DSI-2 --transform 90" in autostart
-    assert "./scripts/launch-golf-one.sh --mock --sim" in autostart
+    assert "./scripts/launch-golf-one.sh" in autostart
+    assert "--mock --sim" not in autostart
 
 
 def test_waveshare_touch_calibration_cancels_reported_corner_rotation():
@@ -147,6 +155,8 @@ def test_simulator_extension_relays_local_shots_into_the_fuse_game():
     assert "new URL(gameFrame.src).origin" in content
     assert "event.data.type === 'player'" in content
     assert "event.data.type === 'result'" in content
+    assert "METERS_TO_YARDS = 1.0936133" in content
+    assert "carryMeters * METERS_TO_YARDS" in content
     assert "/api/opengolfsim/browser/session" in background
     assert "/api/opengolfsim/browser/poll" in background
     assert "/api/opengolfsim/browser/ack" in background
@@ -161,7 +171,22 @@ def test_simulator_extension_manifest_rolls_out_browser_relay_worker():
     )
 
     version = tuple(int(part) for part in manifest["version"].split("."))
-    assert version >= (1, 1, 0)
+    assert version >= (1, 2, 0)
+    matches = manifest["content_scripts"][0]["matches"]
+    assert "http://127.0.0.1:8080/offline-simulator*" in matches
+    assert "http://localhost:8080/offline-simulator*" in matches
+
+
+def test_simulator_extension_accepts_only_official_or_loopback_game_pages():
+    repo_root = Path(__file__).resolve().parents[1]
+    background = (repo_root / "browser-extension/background.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "isSimulatorSender" in background
+    assert "https://app.opengolfsim.com" in background
+    assert "http://127.0.0.1:8080" in background
+    assert "http://localhost:8080" in background
 
 
 def test_simulator_extension_defaults_to_full_width_with_recoverable_controls():
@@ -184,3 +209,16 @@ def test_simulator_extension_closes_stale_spa_games_and_recovers_visual_test():
     assert "window.location.pathname.startsWith('/fuse/examples/range')" in content
     assert "scheduleGameSessionRetry" in content
     assert "GAME_SESSION_RETRY_MAX_MS" in content
+
+
+def test_offline_fuse_installer_is_pinned_and_keeps_third_party_code_out_of_repo():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (
+        repo_root / "scripts/setup/install-offline-fuse-range.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "6f10092c4444a538dd869d495eb2cb45697a5fb5" in installer
+    assert "https://github.com/OpenGolfSim/fuse.git" in installer
+    assert "GOLF_ONE_OFFLINE_FUSE_INSTALL_ROOT" in installer
+    assert "LICENSE.md" in installer
+    assert "password" not in installer.lower()

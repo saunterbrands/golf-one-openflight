@@ -13,7 +13,70 @@ opens the official experimental WebGL simulator.
 
 ## OpenGolfSim Web on the Waveshare
 
-1. Golf One opens `https://app.opengolfsim.com/account/simulator` at boot.
+1. Golf One checks whether `https://app.opengolfsim.com/account/simulator` is
+   reachable at boot.
+2. When online, Golf One opens the official hosted simulator.
+3. When offline, Golf One opens the appliance-local FUSE Practice Range.
+4. Sign in to OpenGolfSim when the hosted site asks. The dedicated Chromium
+   profile persists the official session cookie across kiosk and Pi restarts.
+5. Select a range or course.
+6. Wait for the lower-left **Golf One** chip to read **Game ready**.
+7. Hit a ball. In mock mode, open the chip and press **Send test shot**.
+
+Golf One does not implement or automate OpenGolfSim authentication. The current
+hosted site supports email/password login, not OAuth or passkeys. If OpenGolfSim
+adds passkeys later, they can appear through its official login page without
+Golf One storing an account secret.
+
+The password stays entirely inside OpenGolfSim. Golf One does not save it in
+source code, local JSON, system services, or Git. The persistent browser profile
+is:
+
+```text
+~/.config/golf-one-kiosk/chromium
+```
+
+Do not delete that directory unless intentionally clearing the appliance login.
+
+## Offline Practice Range
+
+The local Practice Range is a separate, account-free FUSE runtime. It is not an
+offline copy of the hosted account or course library. Install it once while the
+Pi has internet access:
+
+```bash
+scripts/setup/install-offline-fuse-range.sh
+```
+
+The installer:
+
+- fetches the pinned official FUSE source commit;
+- builds only the Practice Range;
+- copies its static runtime and required license into
+  `~/.local/share/golf-one/fuse`;
+- keeps all third-party FUSE code and assets outside this Git repository.
+
+Open it directly at:
+
+```text
+http://127.0.0.1:8080/offline-simulator
+```
+
+The normal `/simulator/launch` page prefers the hosted simulator and falls back
+to this local range after an offline/timeout result. The same Golf One browser
+relay sends measured shots into both runtimes.
+
+Only the official Practice Range is installed. Hosted account courses are not
+silently copied. A user-authored course can be made local later only when its
+GLB and related assets are licensed for that use.
+
+The FUSE repository uses the PolyForm Noncommercial license and requires its
+notice. Personal prototype/testing use is permitted; shipping this runtime in a
+commercial Golf One product requires a commercial agreement with OpenGolfSim.
+
+## Hosted simulator workflow
+
+1. Golf One opens `https://app.opengolfsim.com/account/simulator`.
 2. Sign in to OpenGolfSim. The password stays entirely inside OpenGolfSim.
 3. Select a range or course.
 4. Wait for the lower-left **Golf One** chip to read **Game ready**.
