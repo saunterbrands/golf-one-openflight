@@ -65,6 +65,10 @@ if [ ! -x /usr/bin/nc ]; then
     echo "OpenBSD netcat is required for the loading-page paint handshake." >&2
     exit 1
 fi
+if [ ! -x /usr/bin/setsid ]; then
+    echo "util-linux setsid is required to isolate the branded cover process group." >&2
+    exit 1
+fi
 
 LIGHTDM_BIN="$(command -v lightdm || true)"
 if [ -z "$LIGHTDM_BIN" ]; then

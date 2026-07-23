@@ -4,8 +4,8 @@
 #
 # The session cover is established before the Raspberry Pi desktop starts.
 # Chromium then opens a local Golf One loading page immediately while the
-# backend initializes. The cover is dismissed only after the branded loading
-# page reports painted frames, leaving Golf One—not the Pi desktop—underneath.
+# backend initializes. The desktop does not start until Chromium owns the
+# visible surface and the branded loading page reports painted frames.
 #
 
 set -u
@@ -25,7 +25,7 @@ PAGE_REQUEST_FILE="$RUNTIME_DIR/golf-one-loading-page.request"
 PAGE_READY_PORT=38917
 SESSION_LOG="${GOLF_ONE_SESSION_LOG:-$HOME/golf-one-kiosk.log}"
 COVER_PID=""
-COVER_WATCHER_PID=""
+COVER_PGID=""
 PAGE_READY_SERVER_PID=""
 BOOT_BROWSER_PID=""
 APP_PID=""
@@ -57,17 +57,74 @@ stop_exact_pid() {
     fi
 }
 
+stop_process_tree() {
+    local parent_pid="${1:-}"
+    local child_pid
+
+    case "$parent_pid" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
+
+    for child_pid in $(pgrep -P "$parent_pid" 2>/dev/null || true); do
+        stop_process_tree "$child_pid"
+    done
+    stop_exact_pid "$parent_pid"
+}
+
+process_group_exists() {
+    local pgid="${1:-}"
+
+    case "$pgid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    ps -eo pgid=,stat= \
+        | awk -v expected="$pgid" '$1 == expected && $2 !~ /^Z/ { found = 1 } END { exit !found }'
+}
+
+stop_process_group() {
+    local pgid="${1:-}"
+    local own_pgid
+
+    case "$pgid" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
+    own_pgid="$(ps -o pgid= -p "$$" | tr -d ' ')"
+    if [ "$pgid" = "$own_pgid" ]; then
+        session_log "FATAL: refusing to stop the appliance session process group"
+        return 1
+    fi
+
+    if process_group_exists "$pgid"; then
+        kill -TERM -- "-$pgid" 2>/dev/null || true
+        for _ in $(seq 1 40); do
+            process_group_exists "$pgid" || break
+            sleep 0.05
+        done
+        if process_group_exists "$pgid"; then
+            kill -KILL -- "-$pgid" 2>/dev/null || true
+        fi
+    fi
+}
+
 clear_stale_session_cover() {
     local stale_pid=""
+    local stale_pgid=""
 
     if [ -r "$COVER_PID_FILE" ]; then
-        stale_pid="$(sed -n '1p' "$COVER_PID_FILE")"
+        read -r stale_pid stale_pgid <"$COVER_PID_FILE" || true
     fi
     case "$stale_pid" in
         ''|*[!0-9]*) ;;
         *)
             if [ "$(cat "/proc/$stale_pid/comm" 2>/dev/null || true)" = "swaylock" ]; then
-                stop_exact_pid "$stale_pid"
+                if [ -n "$stale_pgid" ] \
+                    && [ "$(ps -o pgid= -p "$stale_pid" | tr -d ' ')" = "$stale_pgid" ]; then
+                    stop_process_group "$stale_pgid"
+                else
+                    # Compatibility with the first installer revision, which
+                    # recorded only swaylock's parent PID.
+                    stop_process_tree "$stale_pid"
+                fi
             fi
             ;;
     esac
@@ -75,6 +132,8 @@ clear_stale_session_cover() {
 }
 
 show_session_cover() {
+    local candidate_pgid=""
+
     clear_stale_session_cover
 
     if [ ! -x /usr/bin/swaylock ]; then
@@ -87,18 +146,36 @@ show_session_cover() {
     fi
 
     : >"$COVER_READY_FILE"
-    /usr/bin/swaylock \
+    /usr/bin/setsid /usr/bin/swaylock \
         --no-unlock-indicator \
         --image "$COVER_IMAGE" \
         --scaling fill \
         --ready-fd 3 \
         3>"$COVER_READY_FILE" &
     COVER_PID=$!
-    printf '%s\n' "$COVER_PID" >"$COVER_PID_FILE"
+    COVER_PGID=""
+    for _ in $(seq 1 40); do
+        candidate_pgid="$(ps -o pgid= -p "$COVER_PID" | tr -d ' ')"
+        if [ "$candidate_pgid" = "$COVER_PID" ]; then
+            COVER_PGID="$candidate_pgid"
+            break
+        fi
+        kill -0 "$COVER_PID" 2>/dev/null || break
+        sleep 0.025
+    done
+    if [ -z "$COVER_PGID" ] || [ "$COVER_PGID" != "$COVER_PID" ]; then
+        session_log "FATAL: swaylock did not enter an isolated process group"
+        stop_process_tree "$COVER_PID"
+        COVER_PID=""
+        COVER_PGID=""
+        rm -f -- "$COVER_READY_FILE"
+        return 1
+    fi
+    printf '%s %s\n' "$COVER_PID" "$COVER_PGID" >"$COVER_PID_FILE"
 
     for _ in $(seq 1 80); do
         if [ -s "$COVER_READY_FILE" ] && kill -0 "$COVER_PID" 2>/dev/null; then
-            session_log "Golf One cover ready (pid $COVER_PID)"
+            session_log "Golf One cover ready (pid $COVER_PID, pgid $COVER_PGID)"
             rm -f -- "$COVER_READY_FILE"
             return 0
         fi
@@ -109,8 +186,9 @@ show_session_cover() {
     done
 
     session_log "FATAL: swaylock did not establish the Golf One cover"
-    stop_exact_pid "$COVER_PID"
+    stop_process_group "$COVER_PGID"
     COVER_PID=""
+    COVER_PGID=""
     rm -f -- "$COVER_PID_FILE" "$COVER_READY_FILE"
     return 1
 }
@@ -189,17 +267,36 @@ start_raspberry_pi_desktop() {
     /usr/bin/lwrespawn /usr/bin/pcmanfm-pi &
     /usr/bin/lwrespawn /usr/bin/wf-panel-pi &
     /usr/bin/lxsession-xdg-autostart &
-    session_log "Raspberry Pi desktop started behind the Golf One cover"
+    session_log "Raspberry Pi desktop started behind the Golf One kiosk"
 }
 
 dismiss_session_cover() {
-    if [ -n "$COVER_PID" ] \
-        && [ "$(cat "/proc/$COVER_PID/comm" 2>/dev/null || true)" = "swaylock" ]; then
-        stop_exact_pid "$COVER_PID"
-        session_log "Golf One cover dismissed after the loading page painted"
+    if [ -n "$COVER_PGID" ] && process_group_exists "$COVER_PGID"; then
+        stop_process_group "$COVER_PGID"
+        wait "$COVER_PID" 2>/dev/null || true
+        session_log "Golf One cover dismissed after Chromium became ready"
     fi
     COVER_PID=""
+    COVER_PGID=""
     rm -f -- "$COVER_PID_FILE"
+}
+
+wait_for_browser_renderer() {
+    for _ in $(seq 1 240); do
+        if kill -0 "$BOOT_BROWSER_PID" 2>/dev/null \
+            && [ -n "$(find_profile_browser_pids --type=renderer)" ]; then
+            session_log "Chromium renderer ready behind the Golf One cover"
+            return 0
+        fi
+        if ! kill -0 "$BOOT_BROWSER_PID" 2>/dev/null; then
+            session_log "FATAL: Chromium exited before creating a renderer"
+            return 1
+        fi
+        sleep 0.25
+    done
+
+    session_log "FATAL: Chromium renderer was not ready within 60 seconds"
+    return 1
 }
 
 wait_for_loading_page_ready() {
@@ -217,7 +314,7 @@ wait_for_loading_page_ready() {
         sleep 0.25
     done
 
-    session_log "FATAL: loading page did not paint within 60 seconds; Golf One cover remains active"
+    session_log "FATAL: loading page did not paint within 60 seconds; desktop remains unstarted"
     return 1
 }
 
@@ -225,7 +322,6 @@ cleanup_session() {
     local exit_status=$?
 
     trap - EXIT HUP INT TERM
-    stop_exact_pid "$COVER_WATCHER_PID"
     stop_exact_pid "$PAGE_READY_SERVER_PID"
     stop_exact_pid "$APP_PID"
     if [ -n "$BOOT_BROWSER_PID" ] \
@@ -265,26 +361,25 @@ main() {
     start_loading_page_ready_server
     "$SCRIPT_DIR/open-kiosk-browser.sh" "$BOOT_PAGE_URL" &
     BOOT_BROWSER_PID=$!
-    wait_for_loading_page_ready &
-    COVER_WATCHER_PID=$!
 
     GOLF_ONE_BROWSER_ALREADY_RUNNING=1 \
         GOLF_ONE_KIOSK_URL="$KIOSK_URL" \
         "$SCRIPT_DIR/launch-golf-one.sh" &
     APP_PID=$!
-    if wait "$COVER_WATCHER_PID"; then
-        # The desktop is needed only for the protected exit. Create it after
-        # Chromium has painted, while swaylock still owns the visible frame.
-        start_raspberry_pi_desktop
-        sleep 0.75
-        if kill -0 "$BOOT_BROWSER_PID" 2>/dev/null \
-            && [ -s "$PAGE_READY_FILE" ]; then
-            dismiss_session_cover
-        else
-            session_log "FATAL: browser readiness was lost; Golf One cover remains active"
-        fi
+
+    # swaylock's session lock intentionally prevents regular clients from
+    # painting. Wait for Chromium's renderer, release the isolated cover
+    # process group, then require the loading page's two-frame handshake.
+    if ! wait_for_browser_renderer; then
+        while :; do sleep 3600; done
     fi
-    COVER_WATCHER_PID=""
+    dismiss_session_cover
+
+    if wait_for_loading_page_ready; then
+        # The desktop exists only for the protected exit and is created after
+        # Golf One has already painted, so it cannot appear during boot.
+        start_raspberry_pi_desktop
+    fi
     wait "$PAGE_READY_SERVER_PID" 2>/dev/null || true
     PAGE_READY_SERVER_PID=""
     rm -f -- "$PAGE_REQUEST_FILE"

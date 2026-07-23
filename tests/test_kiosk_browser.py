@@ -163,21 +163,21 @@ def test_appliance_session_covers_the_pi_desktop_until_golf_one_maps():
     stale_browser_stopped = main_body.index(stale_function)
     paint_listener = main_body.index("start_loading_page_ready_server")
     loading_browser = main_body.index('open-kiosk-browser.sh" "$BOOT_PAGE_URL"')
-    paint_waiter = main_body.index("wait_for_loading_page_ready")
     dashboard_started = main_body.index('launch-golf-one.sh"')
-    paint_confirmed = main_body.index('wait "$COVER_WATCHER_PID"')
-    desktop_started = main_body.index("start_raspberry_pi_desktop", paint_confirmed)
-    cover_dismissed = main_body.index("dismiss_session_cover", desktop_started)
+    renderer_ready = main_body.index("wait_for_browser_renderer", dashboard_started)
+    cover_dismissed = main_body.index("dismiss_session_cover", renderer_ready)
+    paint_waiter = main_body.index("wait_for_loading_page_ready", cover_dismissed)
+    desktop_started = main_body.index("start_raspberry_pi_desktop", paint_waiter)
     assert (
         cover_ready
         < stale_browser_stopped
         < paint_listener
         < loading_browser
-        < paint_waiter
         < dashboard_started
-        < paint_confirmed
-        < desktop_started
+        < renderer_ready
         < cover_dismissed
+        < paint_waiter
+        < desktop_started
     )
     assert "--ready-fd" in session
     assert "/usr/bin/lxsession-xdg-autostart" in session
@@ -215,10 +215,11 @@ def test_appliance_cover_is_fail_closed_and_tracks_the_exact_swaylock_process():
         assert guard is not None
         assert "return 1" in guard.group("body")
 
-    # Running swaylock in the background gives us the PID of the exact process
-    # that owns the cover. A global pgrep can select an unrelated/stale lock.
+    # Isolating swaylock in a new process group tracks both its parent and
+    # helper process. A global pgrep can select an unrelated/stale lock.
     assert "--daemonize" not in show_cover
     assert "pgrep" not in show_cover
+    assert "/usr/bin/setsid /usr/bin/swaylock" in show_cover
     assert re.search(
         r'(?s)/usr/bin/swaylock.*?--ready-fd 3.*?3>"\$COVER_READY_FILE"[ \t]*&',
         show_cover,
@@ -228,12 +229,17 @@ def test_appliance_cover_is_fail_closed_and_tracks_the_exact_swaylock_process():
     pid_variable = pid_capture.group("variable")
     ready_check = show_cover.index('[ -s "$COVER_READY_FILE" ]')
     live_check = show_cover.index(f'kill -0 "${pid_variable}"')
-    pid_write = show_cover.index(f'"${pid_variable}" >"$COVER_PID_FILE"')
+    pgid_capture = show_cover.index('candidate_pgid="$(ps -o pgid=')
+    pid_write = show_cover.index('"$COVER_PID" "$COVER_PGID" >"$COVER_PID_FILE"')
     assert pid_capture.start() < ready_check
     assert pid_capture.start() < live_check
+    assert pid_capture.start() < pgid_capture
     assert pid_capture.start() < pid_write
+    assert 'if [ "$candidate_pgid" = "$COVER_PID" ]; then' in show_cover
+    assert 'COVER_PGID="$candidate_pgid"' in show_cover
     assert (
-        f'kill "${pid_variable}"' in show_cover or f'stop_exact_pid "${pid_variable}"' in show_cover
+        'stop_process_group "$COVER_PGID"' in show_cover
+        or f'stop_exact_pid "${pid_variable}"' in show_cover
     )
     assert "return 1" in show_cover
 
@@ -246,15 +252,10 @@ def test_appliance_cover_is_fail_closed_and_tracks_the_exact_swaylock_process():
     assert fail_closed is not None
     assert "exit 1" in fail_closed.group("body") or "while :;" in fail_closed.group("body")
 
+    assert 'process_group_exists "$COVER_PGID"' in dismiss_cover
     assert (
-        'cat "/proc/$COVER_PID/comm"' in dismiss_cover
-        or 'cat "/proc/$cover_pid/comm"' in dismiss_cover
-    )
-    assert (
-        'kill "$COVER_PID"' in dismiss_cover
+        'stop_process_group "$COVER_PGID"' in dismiss_cover
         or 'stop_exact_pid "$COVER_PID"' in dismiss_cover
-        or 'kill "$cover_pid"' in dismiss_cover
-        or 'stop_exact_pid "$cover_pid"' in dismiss_cover
     )
     assert "pgrep" not in dismiss_cover
     assert "pkill" not in dismiss_cover
