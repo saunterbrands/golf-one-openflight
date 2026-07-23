@@ -1,5 +1,6 @@
 """Tests for the kiosk browser rendering-path configuration."""
 
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -141,6 +142,16 @@ def test_simulator_extension_relays_local_shots_into_the_fuse_game():
     assert "sender?.origin" in background
 
 
+def test_simulator_extension_manifest_rolls_out_browser_relay_worker():
+    repo_root = Path(__file__).resolve().parents[1]
+    manifest = json.loads(
+        (repo_root / "browser-extension/manifest.json").read_text(encoding="utf-8")
+    )
+
+    version = tuple(int(part) for part in manifest["version"].split("."))
+    assert version >= (1, 1, 0)
+
+
 def test_simulator_extension_defaults_to_full_width_with_recoverable_controls():
     repo_root = Path(__file__).resolve().parents[1]
     content = (repo_root / "browser-extension/content.js").read_text(encoding="utf-8")
@@ -159,3 +170,5 @@ def test_simulator_extension_closes_stale_spa_games_and_recovers_visual_test():
     assert "DIRECT_RANGE_RECOVERY_MS" in content
     assert "inFlightShot = null" in content
     assert "window.location.pathname.startsWith('/fuse/examples/range')" in content
+    assert "scheduleGameSessionRetry" in content
+    assert "GAME_SESSION_RETRY_MAX_MS" in content

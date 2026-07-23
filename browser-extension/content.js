@@ -325,7 +325,10 @@
   let layoutSnapshot = null;
   let immersiveLayout = true;
   let directRangeRecoveryTimer = 0;
+  let gameSessionRetryTimer = 0;
+  let gameSessionRetryAttempt = 0;
   const DIRECT_RANGE_RECOVERY_MS = 15000;
+  const GAME_SESSION_RETRY_MAX_MS = 15000;
   const directRangeVerification = window.location.pathname.startsWith('/fuse/examples/range');
 
   const setGameState = (label, connectionState = 'connected') => {
@@ -334,6 +337,28 @@
   };
 
   const findGameFrame = () => document.querySelector('iframe[title="fuse"]');
+
+  const gameIsAvailable = () =>
+    directRangeVerification ? Boolean(document.querySelector('canvas')) : Boolean(findGameFrame());
+
+  const clearGameSessionRetry = () => {
+    if (gameSessionRetryTimer) {
+      window.clearTimeout(gameSessionRetryTimer);
+      gameSessionRetryTimer = 0;
+    }
+    gameSessionRetryAttempt = 0;
+  };
+
+  const scheduleGameSessionRetry = () => {
+    if (gameSessionRetryTimer || gameSessionId || !gameIsAvailable()) return;
+    const delay = Math.min(1000 * 2 ** gameSessionRetryAttempt, GAME_SESSION_RETRY_MAX_MS);
+    gameSessionRetryAttempt += 1;
+    setGameState('Bridge retrying', 'error');
+    gameSessionRetryTimer = window.setTimeout(() => {
+      gameSessionRetryTimer = 0;
+      if (!gameSessionId && gameIsAvailable()) void openGameSession();
+    }, delay);
+  };
 
   const applyOpenGolfSimLayout = () => {
     gameFrame = findGameFrame();
@@ -404,6 +429,7 @@
     gameSessionId = '';
     gameSessionOpening = false;
     inFlightShot = null;
+    clearGameSessionRetry();
     if (directRangeRecoveryTimer) {
       window.clearTimeout(directRangeRecoveryTimer);
       directRangeRecoveryTimer = 0;
@@ -435,6 +461,7 @@
       if (!response.ok) {
         setGameState('Bridge offline', 'error');
         gameSessionId = '';
+        scheduleGameSessionRetry();
         break;
       }
 
@@ -492,9 +519,11 @@
     gameSessionOpening = false;
     if (!response.ok) {
       setGameState('Bridge offline', 'error');
+      scheduleGameSessionRetry();
       return;
     }
 
+    clearGameSessionRetry();
     gameSessionId = response.data.session_id;
     gameCursor = response.data.cursor ?? gameCursor;
     setGameState('Game ready');
@@ -707,7 +736,6 @@
   });
 
   window.addEventListener('pagehide', () => {
-    if (!gameSessionId) return;
     void closeGameSession('pagehide');
   });
 
