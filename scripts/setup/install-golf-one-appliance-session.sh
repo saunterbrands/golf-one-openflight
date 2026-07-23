@@ -3,9 +3,8 @@
 # Install the dedicated LightDM/Labwc Golf One appliance session.
 #
 # This requires root because it adds a Wayland session and updates LightDM's
-# effective autologin session.
-# The normal Raspberry Pi desktop still starts behind the branded kiosk cover
-# and is revealed by Golf One's protected exit control.
+# effective autologin session. A branded swaybg layer is the only boot-time
+# recovery surface; Raspberry Pi Desktop starts only after the protected exit.
 #
 
 set -euo pipefail
@@ -57,8 +56,9 @@ if ! command -v xmlstarlet >/dev/null 2>&1; then
     echo "xmlstarlet is required to preserve Raspberry Pi Labwc settings." >&2
     exit 1
 fi
-if ! command -v swaylock >/dev/null 2>&1; then
-    echo "swaylock is required to conceal the Raspberry Pi desktop during startup." >&2
+if ! command -v swaybg >/dev/null 2>&1; then
+    echo "swaybg is required for the branded appliance background." >&2
+    echo "Install it with: sudo apt install swaybg" >&2
     exit 1
 fi
 if [ ! -x /usr/bin/nc ]; then

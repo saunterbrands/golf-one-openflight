@@ -165,11 +165,11 @@ def test_appliance_session_does_not_create_the_pi_desktop_during_boot():
     loading_browser = main_body.index('open-kiosk-browser.sh" "$BOOT_PAGE_URL"')
     dashboard_started = main_body.index('launch-golf-one.sh"')
     renderer_ready = main_body.index("wait_for_browser_renderer", dashboard_started)
-    cover_dismissed = main_body.index("dismiss_session_cover", renderer_ready)
-    paint_waiter = main_body.index("wait_for_loading_page_ready", cover_dismissed)
+    paint_waiter = main_body.index("wait_for_loading_page_ready", renderer_ready)
     app_waiter = main_body.index("wait_for_owned_app", paint_waiter)
     exit_marker_check = main_body.index("if desktop_exit_is_valid", app_waiter)
     desktop_started = main_body.index("start_raspberry_pi_desktop", exit_marker_check)
+    cover_dismissed = main_body.index("dismiss_session_cover", desktop_started)
     assert (
         cover_ready
         < stale_browser_stopped
@@ -177,11 +177,11 @@ def test_appliance_session_does_not_create_the_pi_desktop_during_boot():
         < loading_browser
         < dashboard_started
         < renderer_ready
-        < cover_dismissed
         < paint_waiter
         < app_waiter
         < exit_marker_check
         < desktop_started
+        < cover_dismissed
     )
     assert main_body.count("start_raspberry_pi_desktop") == 1
     assert 'GOLF_ONE_DESKTOP_EXIT_FILE="$DESKTOP_REQUEST_FILE"' in main_body
@@ -195,7 +195,9 @@ def test_appliance_session_does_not_create_the_pi_desktop_during_boot():
     assert "desktop_exit_is_valid" in app_monitor
     assert "show_session_cover" in app_monitor
     assert 'stop_exact_pid "$APP_PID"' in app_monitor
-    assert "--ready-fd" in session
+    assert "/usr/bin/setsid /usr/bin/swaybg" in session
+    assert "/usr/bin/swaylock" not in session
+    assert "command -v swaybg" in installer
     assert "/usr/bin/lxsession-xdg-autostart" in session
     assert "/usr/bin/pcmanfm-pi" in session
     assert "/usr/bin/wf-panel-pi" in session
@@ -213,7 +215,7 @@ def test_appliance_session_does_not_create_the_pi_desktop_during_boot():
     assert struct.unpack(">II", header[16:24]) == (1920, 720)
 
 
-def test_appliance_cover_is_fail_closed_and_tracks_the_exact_swaylock_process():
+def test_appliance_background_is_fail_closed_and_tracks_the_exact_swaybg_process():
     repo_root = Path(__file__).resolve().parents[1]
     session = (repo_root / "scripts/run-appliance-session.sh").read_text(encoding="utf-8")
     show_cover = _bash_function_body(session, "show_session_cover")
@@ -221,7 +223,7 @@ def test_appliance_cover_is_fail_closed_and_tracks_the_exact_swaylock_process():
     main_body = _bash_function_body(session, "main")
 
     for prerequisite in (
-        r"if \[ ! -x /usr/bin/swaylock \]; then",
+        r"if \[ ! -x /usr/bin/swaybg \]; then",
         r'if \[ ! -f "\$COVER_IMAGE" \]; then',
     ):
         guard = re.search(
@@ -231,32 +233,23 @@ def test_appliance_cover_is_fail_closed_and_tracks_the_exact_swaylock_process():
         assert guard is not None
         assert "return 1" in guard.group("body")
 
-    # Isolating swaylock in a new process group tracks both its parent and
-    # helper process. A global pgrep can select an unrelated/stale lock.
-    assert "--daemonize" not in show_cover
+    # Isolate and track the exact branded background instead of relying on a
+    # global process lookup or a session lock that blocks Chromium painting.
     assert "pgrep" not in show_cover
-    assert "/usr/bin/setsid /usr/bin/swaylock" in show_cover
-    assert re.search(
-        r'(?s)/usr/bin/swaylock.*?--ready-fd 3.*?3>"\$COVER_READY_FILE"[ \t]*&',
-        show_cover,
-    )
+    assert "swaylock" not in show_cover
+    assert "/usr/bin/setsid /usr/bin/swaybg" in show_cover
+    assert '--output DSI-2' in show_cover
+    assert '--image "$COVER_IMAGE"' in show_cover
+    assert "--mode fill" in show_cover
     pid_capture = re.search(r'(?P<variable>COVER_PID|cover_pid)=(?:"\$!"|\$!)', show_cover)
     assert pid_capture is not None
-    pid_variable = pid_capture.group("variable")
-    ready_check = show_cover.index('[ -s "$COVER_READY_FILE" ]')
-    live_check = show_cover.index(f'kill -0 "${pid_variable}"')
     pgid_capture = show_cover.index('candidate_pgid="$(ps -o pgid=')
     pid_write = show_cover.index('"$COVER_PID" "$COVER_PGID" >"$COVER_PID_FILE"')
-    assert pid_capture.start() < ready_check
-    assert pid_capture.start() < live_check
-    assert pid_capture.start() < pgid_capture
-    assert pid_capture.start() < pid_write
+    stable_live_check = show_cover.index('process_is_live "$COVER_PID"')
+    assert pid_capture.start() < pgid_capture < pid_write < stable_live_check
     assert 'if [ "$candidate_pgid" = "$COVER_PID" ]; then' in show_cover
     assert 'COVER_PGID="$candidate_pgid"' in show_cover
-    assert (
-        'stop_process_group "$COVER_PGID"' in show_cover
-        or f'stop_exact_pid "${pid_variable}"' in show_cover
-    )
+    assert 'stop_process_group "$COVER_PGID"' in show_cover
     assert "return 1" in show_cover
 
     # A missing or unready cover must stop startup before desktop content can
