@@ -34,3 +34,17 @@ def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
     assert "DEFAULT_ARGS=(--mock --sim)" in launcher
     assert "Name=Golf One Simulator" in desktop
     assert "/home/openflight/golf-one-openflight/scripts/launch-golf-one.sh" in desktop
+
+
+def test_session_installer_preserves_rotation_and_installs_recovery_launcher():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-golf-one-session.sh").read_text(
+        encoding="utf-8"
+    )
+    autostart = (repo_root / "scripts/setup/labwc-autostart").read_text(encoding="utf-8")
+
+    assert 'cp "$LABWC_DIR/autostart" "$BACKUP_DIR/labwc-autostart.$STAMP"' in installer
+    assert 'install -m 0644 "$SCRIPT_DIR/labwc-autostart" "$LABWC_DIR/autostart"' in installer
+    assert 'install -m 0755 "$SCRIPT_DIR/GolfOne.desktop"' in installer
+    assert "wlr-randr --output DSI-2 --transform 90" in autostart
+    assert "./scripts/launch-golf-one.sh --mock --sim" in autostart
