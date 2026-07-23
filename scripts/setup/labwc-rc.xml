@@ -8,12 +8,11 @@
     The display remains at its visual transform of 90 degrees. The reported
     touch points are one quarter-turn counterclockwise, so this documented
     libinput matrix applies the inverse 90-degree clockwise transform.
+
+    Do not also add an exact-name touch mapToOutput rule here. Labwc applies
+    the mapped output's rotation in addition to this matrix, which would turn
+    the coordinates twice on this single-display appliance.
   -->
-  <touch
-    deviceName="Goodix Capacitive TouchScreen"
-    mapToOutput="DSI-2"
-    mouseEmulation="no"
-  />
   <libinput>
     <device category="Goodix Capacitive TouchScreen">
       <calibrationMatrix>0 -1 1 1 0 0</calibrationMatrix>

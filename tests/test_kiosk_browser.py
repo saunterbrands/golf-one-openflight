@@ -82,9 +82,7 @@ def test_waveshare_touch_calibration_cancels_reported_corner_rotation():
         namespace,
     )
 
-    assert touch is not None
-    assert touch.attrib["mapToOutput"] == "DSI-2"
-    assert touch.attrib["mouseEmulation"] == "no"
+    assert touch is None
     assert calibration is not None
     matrix = tuple(float(value) for value in calibration.text.split())
     assert matrix == (0, -1, 1, 1, 0, 0)
