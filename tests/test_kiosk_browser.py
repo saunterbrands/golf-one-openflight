@@ -147,6 +147,7 @@ def test_appliance_session_covers_the_pi_desktop_until_golf_one_maps():
     assert "Goodix Capacitive TouchScreen" in installer
     assert "0 -1 1 1 0 0" in installer
     assert re.search(r"(?m)^Exec=/(?:home|usr/local)/.+$", session_entry)
+    assert 'SCRIPT_PATH="$(readlink -f "$0"' in compositor
     assert '--config-dir "$SESSION_CONFIG_DIR"' in compositor
     assert "--merge-config" not in compositor
 

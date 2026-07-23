@@ -15,7 +15,8 @@ if [ -r /usr/bin/setup_env ]; then
     . /usr/bin/setup_env
 fi
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || printf '%s\n' "$0")"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
 SESSION_CONFIG_DIR="${GOLF_ONE_LABWC_CONFIG_DIR:-$HOME/.config/golf-one/labwc}"
 
 export DESKTOP_SESSION=golf-one
