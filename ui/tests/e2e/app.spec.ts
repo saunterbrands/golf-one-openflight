@@ -49,7 +49,9 @@ test('renders live shot data and mock-mode simulate flow', async ({ page }) => {
 
   await expect(page.getByText('Ready for your shot')).toBeHidden();
   await expect(page.locator('.speed-gauge__value')).not.toHaveText('--');
-  await expect(page.locator('.metric-card').filter({ hasText: 'Carry' }).locator('.metric-card__value')).not.toHaveText('--');
+  await expect(page.locator('.metric-card').filter({ hasText: 'Carry' }).locator('.metric-card__value')).not.toHaveText(
+    '--'
+  );
 });
 
 test('switches between primary navigation views', async ({ page }) => {
@@ -99,6 +101,34 @@ test('display route shows latest shot and recent shots from mock backend session
   await expect(page.getByLabel('Recent shots')).toContainText('7-iron');
 });
 
+test('wide display fits every metric inside the 1920x720 Waveshare viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 720 });
+  await gotoApp(page, '/display');
+
+  const geometry = await page.evaluate(() => ({
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    scrollWidth: document.documentElement.scrollWidth,
+    scrollHeight: document.documentElement.scrollHeight,
+    metrics: [...document.querySelectorAll('.display-metric')].map((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { top: bounds.top, right: bounds.right, bottom: bounds.bottom, left: bounds.left };
+    }),
+    recent: document.querySelector('.display-mode__recent')?.getBoundingClientRect().toJSON(),
+  }));
+
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.innerWidth);
+  expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.innerHeight);
+  expect(geometry.metrics).toHaveLength(8);
+  for (const metric of geometry.metrics) {
+    expect(metric.top).toBeGreaterThanOrEqual(0);
+    expect(metric.left).toBeGreaterThanOrEqual(0);
+    expect(metric.right).toBeLessThanOrEqual(geometry.innerWidth);
+    expect(metric.bottom).toBeLessThanOrEqual(geometry.innerHeight);
+  }
+  expect(geometry.recent?.bottom).toBeLessThanOrEqual(geometry.innerHeight);
+});
+
 test('unit toggle updates displayed units', async ({ page }) => {
   await withControlSocket(async (socket) => {
     await simulateShot(socket);
@@ -108,7 +138,9 @@ test('unit toggle updates displayed units', async ({ page }) => {
   await page.getByRole('button', { name: 'Close club selection' }).click();
 
   await expect(page.locator('.speed-gauge__unit')).toHaveText('mph');
-  await expect(page.locator('.metric-card').filter({ hasText: 'Carry' }).locator('.metric-card__unit')).toHaveText('yds');
+  await expect(page.locator('.metric-card').filter({ hasText: 'Carry' }).locator('.metric-card__unit')).toHaveText(
+    'yds'
+  );
 
   const imperialSpeed = await page.locator('.speed-gauge__value').textContent();
 

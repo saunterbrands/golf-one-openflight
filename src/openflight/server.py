@@ -15,6 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlsplit
 
 from flask import Flask, Response, request, send_from_directory
 from flask_cors import CORS
@@ -72,6 +73,13 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 opengolfsim_web_bridge = OpenGolfSimWebBridge()
 opengolfsim_config_lock = threading.Lock()
+display_config_lock = threading.Lock()
+
+DISPLAY_MODE_URLS = {
+    "simulator": "https://app.opengolfsim.com/account/simulator",
+    "launch_monitor": "/display",
+}
+DEFAULT_DISPLAY_MODE = "simulator"
 
 # Global state
 monitor = None
@@ -934,6 +942,69 @@ def _save_opengolfsim_email(email: str) -> None:
         os.replace(temporary_path, config_path)
 
 
+def _display_config_path() -> Path:
+    """Return the appliance-local default display settings path."""
+
+    override = os.environ.get("GOLF_ONE_DISPLAY_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".config" / "golf-one" / "display.json"
+
+
+def _load_display_mode() -> str:
+    """Load the display selected for kiosk startup, with a safe default."""
+
+    config_path = _display_config_path()
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return DEFAULT_DISPLAY_MODE
+    except (OSError, json.JSONDecodeError, TypeError) as exc:
+        logger.warning("[display] ignoring unreadable %s: %s", config_path, exc)
+        return DEFAULT_DISPLAY_MODE
+
+    mode = data.get("mode") if isinstance(data, dict) else None
+    return mode if mode in DISPLAY_MODE_URLS else DEFAULT_DISPLAY_MODE
+
+
+def _save_display_mode(mode: str) -> None:
+    """Atomically persist the display selected for kiosk startup."""
+
+    config_path = _display_config_path()
+    config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary_path = config_path.with_name(f".{config_path.name}.tmp")
+
+    with display_config_lock:
+        temporary_path.write_text(
+            json.dumps({"mode": mode}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary_path.chmod(0o600)
+        os.replace(temporary_path, config_path)
+
+
+def _display_mode_payload() -> dict:
+    """Return the selected kiosk display and its navigation target."""
+
+    mode = _load_display_mode()
+    return {"mode": mode, "url": DISPLAY_MODE_URLS[mode]}
+
+
+def _display_write_origin_allowed() -> bool:
+    """Allow browser writes only from a page served by this Golf One host."""
+
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+
+    try:
+        origin_host = urlsplit(origin).hostname
+        golf_one_host = urlsplit(request.host_url).hostname
+    except ValueError:
+        return False
+    return bool(origin_host and golf_one_host and origin_host == golf_one_host)
+
+
 def _opengolfsim_status_payload() -> dict:
     """Translate the backend bridge state into the stable UI/API vocabulary."""
 
@@ -1028,6 +1099,30 @@ def api_opengolfsim():
     opengolfsim_web_bridge.configure_email(email)
     opengolfsim_web_bridge.start()
     return _opengolfsim_status_payload(), 200
+
+
+@app.route("/api/display-mode", methods=["GET", "POST"])
+def api_display_mode():
+    """Read or update the display opened by the Golf One kiosk."""
+
+    if request.method == "GET":
+        return _display_mode_payload(), 200
+
+    if not _display_write_origin_allowed():
+        return {"error": "This display setting can only be changed on Golf One."}, 403
+
+    data = request.get_json(silent=True)
+    mode = data.get("mode") if isinstance(data, dict) else None
+    if mode not in DISPLAY_MODE_URLS:
+        return {"error": "Choose a supported Golf One display."}, 400
+
+    try:
+        _save_display_mode(mode)
+    except OSError as exc:
+        logger.error("[display] failed to save preference: %s", exc, exc_info=True)
+        return {"error": "Golf One could not save the display setting."}, 500
+
+    return {"mode": mode, "url": DISPLAY_MODE_URLS[mode]}, 200
 
 
 # Camera functions

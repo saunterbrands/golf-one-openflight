@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { socketService } from '../services/socketService';
+import { getServerOrigin } from '../utils/serverOrigin';
 import './OpenGolfSimView.css';
 
 const OPEN_GOLF_SIM_WEB_URL = 'https://app.opengolfsim.com/account/simulator';
+const DISPLAY_MODE_API_URL = `${getServerOrigin()}/api/display-mode`;
 
 type BridgeState = 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
@@ -34,7 +36,7 @@ export function OpenGolfSimView() {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autolaunch') === '1'
-      ? 'Opening OpenGolfSim full-screen…'
+      ? 'Opening your default display…'
       : ''
   );
 
@@ -47,16 +49,34 @@ export function OpenGolfSimView() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 5000);
 
-    fetch(OPEN_GOLF_SIM_WEB_URL, {
-      mode: 'no-cors',
-      signal: controller.signal,
-    })
-      .then(() => {
+    const launchDefaultDisplay = async () => {
+      try {
+        const preferenceResponse = await fetch(DISPLAY_MODE_API_URL, {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+        if (preferenceResponse.ok) {
+          const preference = (await preferenceResponse.json()) as { mode?: string };
+          if (preference.mode === 'launch_monitor') {
+            window.location.assign('/display');
+            return;
+          }
+        }
+
+        await fetch(OPEN_GOLF_SIM_WEB_URL, {
+          mode: 'no-cors',
+          signal: controller.signal,
+        });
         window.sessionStorage.setItem('golf-one:opengolfsim-autolaunched', '1');
         window.location.assign(OPEN_GOLF_SIM_WEB_URL);
-      })
-      .catch(() => setFeedback('OpenGolfSim is offline. Check Wi-Fi, then press Launch OpenGolfSim.'))
-      .finally(() => window.clearTimeout(timeout));
+      } catch {
+        setFeedback('The default display could not open. Check Wi-Fi or choose another display in Settings.');
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    };
+
+    void launchDefaultDisplay();
 
     return () => {
       controller.abort();

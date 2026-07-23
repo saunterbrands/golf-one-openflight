@@ -106,3 +106,15 @@ def test_waveshare_touch_calibration_cancels_reported_corner_rotation():
         "top-right": (0, 0),
     }
     assert observed_after == corners
+
+
+def test_simulator_extension_exposes_persistent_display_settings():
+    repo_root = Path(__file__).resolve().parents[1]
+    content = (repo_root / "browser-extension/content.js").read_text(encoding="utf-8")
+    background = (repo_root / "browser-extension/background.js").read_text(encoding="utf-8")
+
+    assert "Display settings" in content
+    assert "Golf One Settings" in content
+    assert "golf-one-settings" in content
+    assert "http://127.0.0.1:8080/?settings=1" in content
+    assert "golf-one-status" in background

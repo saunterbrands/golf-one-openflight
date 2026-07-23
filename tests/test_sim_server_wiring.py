@@ -4,6 +4,7 @@ Exercises server._forward_shot_to_simulators and server._sim_on_inbound with
 fake connectors so no sockets or hardware are needed.
 """
 
+import json
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -187,6 +188,74 @@ def test_opengolfsim_api_rejects_invalid_account(server, email):
     response = server.app.test_client().post("/api/opengolfsim", json={"email": email})
     assert response.status_code == 400
     assert not server._fake_web_bridge.started
+
+
+def test_display_mode_api_defaults_saves_and_reloads(server, monkeypatch, tmp_path):
+    config_path = tmp_path / "golf-one" / "display.json"
+    monkeypatch.setenv("GOLF_ONE_DISPLAY_CONFIG", str(config_path))
+    client = server.app.test_client()
+
+    initial = client.get("/api/display-mode")
+    assert initial.status_code == 200
+    assert initial.get_json() == {
+        "mode": "simulator",
+        "url": "https://app.opengolfsim.com/account/simulator",
+    }
+
+    saved = client.post("/api/display-mode", json={"mode": "launch_monitor"})
+    assert saved.status_code == 200
+    assert saved.get_json() == {"mode": "launch_monitor", "url": "/display"}
+    assert json.loads(config_path.read_text(encoding="utf-8")) == {"mode": "launch_monitor"}
+    assert config_path.stat().st_mode & 0o777 == 0o600
+
+    reloaded = client.get("/api/display-mode")
+    assert reloaded.get_json() == {"mode": "launch_monitor", "url": "/display"}
+
+
+def test_display_mode_api_rejects_unknown_mode(server, monkeypatch, tmp_path):
+    monkeypatch.setenv(
+        "GOLF_ONE_DISPLAY_CONFIG",
+        str(tmp_path / "golf-one" / "display.json"),
+    )
+
+    response = server.app.test_client().post(
+        "/api/display-mode",
+        json={"mode": "unsupported"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Choose a supported Golf One display."}
+
+
+def test_display_mode_api_rejects_cross_origin_write(server, monkeypatch, tmp_path):
+    config_path = tmp_path / "golf-one" / "display.json"
+    monkeypatch.setenv("GOLF_ONE_DISPLAY_CONFIG", str(config_path))
+
+    response = server.app.test_client().post(
+        "/api/display-mode",
+        json={"mode": "launch_monitor"},
+        headers={"Origin": "https://unrelated.example"},
+    )
+
+    assert response.status_code == 403
+    assert response.get_json() == {"error": "This display setting can only be changed on Golf One."}
+    assert not config_path.exists()
+
+
+def test_display_mode_api_allows_same_host_development_origin(server, monkeypatch, tmp_path):
+    monkeypatch.setenv(
+        "GOLF_ONE_DISPLAY_CONFIG",
+        str(tmp_path / "golf-one" / "display.json"),
+    )
+
+    response = server.app.test_client().post(
+        "/api/display-mode",
+        json={"mode": "launch_monitor"},
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["mode"] == "launch_monitor"
 
 
 def test_forward_drops_shot_without_ball_speed(server):

@@ -167,6 +167,10 @@
         cursor: pointer;
       }
 
+      .golf-one-save {
+        grid-column: 1 / -1;
+      }
+
       .golf-one-button--primary {
         border-color: var(--go-green);
         background: var(--go-green);
@@ -236,15 +240,16 @@
     </button>
 
     <section class="golf-one-panel" aria-label="Golf One simulator connection" hidden>
-      <p class="golf-one-eyebrow">Simulator control</p>
-      <h2>Golf One</h2>
+      <p class="golf-one-eyebrow">Display settings</p>
+      <h2>Golf One Settings</h2>
       <p class="golf-one-copy">
-        Use the same email as this OpenGolfSim account so Golf One can send each measured shot into the course.
+        Choose what appears on the Waveshare display or connect this OpenGolfSim account to Golf One.
       </p>
       <label class="golf-one-label" for="golf-one-email">OpenGolfSim email</label>
       <input class="golf-one-input golf-one-email" id="golf-one-email" type="email" inputmode="email" autocomplete="email" />
       <div class="golf-one-actions">
         <button class="golf-one-button golf-one-dashboard" type="button">Dashboard</button>
+        <button class="golf-one-button golf-one-settings" type="button">Display settings</button>
         <button class="golf-one-button golf-one-button--primary golf-one-save" type="button">Connect shots</button>
       </div>
       <p class="golf-one-message" aria-live="polite"></p>
@@ -277,6 +282,7 @@
   const save = root.querySelector('.golf-one-save');
   const message = root.querySelector('.golf-one-message');
   const dashboard = root.querySelector('.golf-one-dashboard');
+  const settings = root.querySelector('.golf-one-settings');
   const hotspot = root.querySelector('.golf-one-hotspot');
   const exitOverlay = root.querySelector('.golf-one-exit');
   const exitForm = root.querySelector('.golf-one-exit-form');
@@ -329,6 +335,10 @@
 
   dashboard.addEventListener('click', () => {
     window.location.assign('http://127.0.0.1:8080');
+  });
+
+  settings.addEventListener('click', () => {
+    window.location.assign('http://127.0.0.1:8080/?settings=1');
   });
 
   save.addEventListener('click', async () => {
