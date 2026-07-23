@@ -90,6 +90,23 @@ def test_session_installer_preserves_rotation_and_installs_recovery_launcher():
     assert "--mock --sim" not in autostart
 
 
+def test_session_installer_disables_raspberry_pi_autotouch_rewriter():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-golf-one-session.sh").read_text(
+        encoding="utf-8"
+    )
+    override = (repo_root / "scripts/setup/autotouch.desktop").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'AUTOSTART_DIR="$HOME/.config/autostart"' in installer
+    assert (
+        'install -m 0644 "$SCRIPT_DIR/autotouch.desktop" '
+        '"$AUTOSTART_DIR/autotouch.desktop"'
+    ) in installer
+    assert "Hidden=true" in override
+
+
 def test_waveshare_touch_calibration_cancels_reported_corner_rotation():
     repo_root = Path(__file__).resolve().parents[1]
     config_path = repo_root / "scripts/setup/labwc-rc.xml"

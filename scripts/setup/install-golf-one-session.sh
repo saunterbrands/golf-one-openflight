@@ -7,12 +7,18 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LABWC_DIR="$HOME/.config/labwc"
+AUTOSTART_DIR="$HOME/.config/autostart"
 APPLICATIONS_DIR="$HOME/.local/share/applications"
 DESKTOP_DIR="$HOME/Desktop"
 BACKUP_DIR="$HOME/.config/golf-one/backups"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
-mkdir -p "$LABWC_DIR" "$APPLICATIONS_DIR" "$DESKTOP_DIR" "$BACKUP_DIR"
+mkdir -p \
+    "$LABWC_DIR" \
+    "$AUTOSTART_DIR" \
+    "$APPLICATIONS_DIR" \
+    "$DESKTOP_DIR" \
+    "$BACKUP_DIR"
 
 if [ -f "$LABWC_DIR/autostart" ]; then
     cp "$LABWC_DIR/autostart" "$BACKUP_DIR/labwc-autostart.$STAMP"
@@ -20,8 +26,12 @@ fi
 if [ -f "$LABWC_DIR/rc.xml" ]; then
     cp "$LABWC_DIR/rc.xml" "$BACKUP_DIR/labwc-rc.$STAMP.xml"
 fi
+if [ -f "$AUTOSTART_DIR/autotouch.desktop" ]; then
+    cp "$AUTOSTART_DIR/autotouch.desktop" "$BACKUP_DIR/autotouch.$STAMP.desktop"
+fi
 
 install -m 0644 "$SCRIPT_DIR/labwc-autostart" "$LABWC_DIR/autostart"
+install -m 0644 "$SCRIPT_DIR/autotouch.desktop" "$AUTOSTART_DIR/autotouch.desktop"
 
 if [ ! -s "$LABWC_DIR/rc.xml" ]; then
     install -m 0644 "$SCRIPT_DIR/labwc-rc.xml" "$LABWC_DIR/rc.xml"
