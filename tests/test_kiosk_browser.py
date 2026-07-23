@@ -280,7 +280,9 @@ def test_appliance_removes_only_stale_profile_processes_before_opening_browser()
         finder = _bash_function_body(session, "find_profile_browser_pids")
         assert "for cmdline in /proc/[0-9]*/cmdline" in finder
         assert "chromium*|chrome*" in finder
-        assert 'grep -Fxq -- "--user-data-dir=$KIOSK_PROFILE_DIR"' in finder
+        assert "cmdline_text=\"$(tr '\\0' ' '" in finder
+        assert '*" --user-data-dir=$KIOSK_PROFILE_DIR "*)' in finder
+        assert '*" $required_arg "*)' in finder
         assert "stop_exact_pid" in cleanup
         assert cleanup.count("find_profile_browser_pids") >= 2
     else:

@@ -195,28 +195,49 @@ show_session_cover() {
 
 find_profile_browser_pids() {
     local required_arg="${1:-}"
-    local cmdline pid argv0 process_name
+    local cmdline pid cmdline_text argv0 process_name
 
     for cmdline in /proc/[0-9]*/cmdline; do
         [ -r "$cmdline" ] || continue
         pid="${cmdline#/proc/}"
         pid="${pid%/cmdline}"
-        argv0="$(tr '\0' '\n' <"$cmdline" 2>/dev/null | sed -n '1p')"
+        # Chromium rewrites /proc/PID/cmdline into a single space-delimited
+        # process title on Raspberry Pi OS. Normal processes retain NULs.
+        # Normalize both representations, then require whole argument tokens.
+        cmdline_text="$(tr '\0' ' ' <"$cmdline" 2>/dev/null)"
+        argv0="${cmdline_text%% *}"
         process_name="${argv0##*/}"
         case "$process_name" in
             chromium*|chrome*) ;;
             *) continue ;;
         esac
-        if ! tr '\0' '\n' <"$cmdline" 2>/dev/null \
-            | grep -Fxq -- "--user-data-dir=$KIOSK_PROFILE_DIR"; then
-            continue
-        fi
-        if [ -n "$required_arg" ] \
-            && ! tr '\0' '\n' <"$cmdline" 2>/dev/null | grep -Fxq -- "$required_arg"; then
-            continue
+        case " $cmdline_text " in
+            *" --user-data-dir=$KIOSK_PROFILE_DIR "*) ;;
+            *) continue ;;
+        esac
+        if [ -n "$required_arg" ]; then
+            case " $cmdline_text " in
+                *" $required_arg "*) ;;
+                *) continue ;;
+            esac
         fi
         printf '%s\n' "$pid"
     done
+}
+
+browser_pid_uses_profile() {
+    local pid="${1:-}"
+    local cmdline_text
+
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    cmdline_text="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)"
+    case " $cmdline_text " in
+        *" --user-data-dir=$KIOSK_PROFILE_DIR "*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 stop_stale_profile_browsers() {
@@ -324,9 +345,7 @@ cleanup_session() {
     trap - EXIT HUP INT TERM
     stop_exact_pid "$PAGE_READY_SERVER_PID"
     stop_exact_pid "$APP_PID"
-    if [ -n "$BOOT_BROWSER_PID" ] \
-        && tr '\0' '\n' <"/proc/$BOOT_BROWSER_PID/cmdline" 2>/dev/null \
-            | grep -Fxq -- "--user-data-dir=$KIOSK_PROFILE_DIR"; then
+    if browser_pid_uses_profile "$BOOT_BROWSER_PID"; then
         stop_exact_pid "$BOOT_BROWSER_PID"
     fi
     if [ "$SESSION_TERMINATING" = "1" ]; then
