@@ -39,7 +39,7 @@ describe('DisplayMode', () => {
   it('renders latest shot metrics and recent shot strip', () => {
     const html = renderToString(<DisplayMode connected cameraStatus={cameraStatus} latestShot={shot} shots={[shot]} />);
 
-    expect(html).toContain('OpenFlight Display');
+    expect(html).toContain('Launch Monitor');
     expect(html).toContain('151.2');
     expect(html).toContain('261');
     expect(html).toContain('Socket connected');

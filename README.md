@@ -1,7 +1,12 @@
 <p align="center">
-<img src="./ui/public/openflightlogo.svg">
-  DIY Golf Launch Monitor using the OPS243-A Doppler Radar.
+<img src="./ui/public/golfone-logo.svg" alt="Golf One" width="520">
+  <br>
+  Golf One launch-monitor product software, built on OpenFlight.
 </p>
+
+> **Golf One product fork:** Golf One branding and device-specific changes live
+> here. The original OpenFlight project is retained as the `upstream` Git remote;
+> see [the update workflow](docs/GOLF_ONE_FORK.md).
 
 <p align="center">
   <a href="https://buymeacoffee.com/colemangolfs">
@@ -55,8 +60,8 @@ Follow the **[Sound Trigger Wiring Guide](docs/sound-trigger-wiring.md)** to con
 Flash Raspberry Pi OS (64-bit), plug in the radars, then run the interactive setup:
 
 ```bash
-git clone https://github.com/jewbetcha/openflight.git
-cd openflight
+git clone https://github.com/saunterbrands/golf-one-openflight.git
+cd golf-one-openflight
 ./scripts/setup/setup.sh
 ```
 

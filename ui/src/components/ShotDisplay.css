@@ -1,7 +1,7 @@
 /* Shot Display Container */
 .shot-display {
   background: linear-gradient(145deg, var(--color-bg-card) 0%, var(--color-bg-elevated) 100%);
-  border: 1px solid rgba(212, 175, 55, 0.1);
+  border: 1px solid rgba(146, 213, 71, 0.1);
   border-radius: var(--radius-lg);
   padding: var(--space-md);
   color: var(--text-primary);
@@ -20,7 +20,7 @@
   right: 0;
   width: 100px;
   height: 100px;
-  background: radial-gradient(circle at top right, rgba(212, 175, 55, 0.08) 0%, transparent 70%);
+  background: radial-gradient(circle at top right, rgba(146, 213, 71, 0.08) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -32,18 +32,18 @@
 @keyframes shot-glow {
   0% {
     box-shadow:
-      0 0 0 0 rgba(212, 175, 55, 0.6),
-      inset 0 0 30px rgba(212, 175, 55, 0.2);
+      0 0 0 0 rgba(146, 213, 71, 0.6),
+      inset 0 0 30px rgba(146, 213, 71, 0.2);
   }
   70% {
     box-shadow:
-      0 0 0 15px rgba(212, 175, 55, 0),
-      inset 0 0 0 rgba(212, 175, 55, 0);
+      0 0 0 15px rgba(146, 213, 71, 0),
+      inset 0 0 0 rgba(146, 213, 71, 0);
   }
   100% {
     box-shadow:
-      0 0 0 0 rgba(212, 175, 55, 0),
-      inset 0 0 0 rgba(212, 175, 55, 0);
+      0 0 0 0 rgba(146, 213, 71, 0),
+      inset 0 0 0 rgba(146, 213, 71, 0);
   }
 }
 
@@ -117,7 +117,7 @@
 .speed-gauge__value {
   font-family: var(--font-display);
   font-size: 5rem;
-  font-weight: 400;
+  font-weight: 800;
   color: var(--color-gold);
   line-height: 1;
   text-shadow: 0 0 30px var(--color-gold-glow);
@@ -141,7 +141,7 @@
 
 .speed-gauge__unit {
   font-size: 1.5rem;
-  font-weight: 500;
+  font-weight: 800;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -150,7 +150,7 @@
 
 .speed-gauge__label {
   font-size: 1.125rem;
-  font-weight: 600;
+  font-weight: 800;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.15em;
@@ -173,8 +173,8 @@
 }
 
 .metric-card--primary {
-  background: rgba(212, 175, 55, 0.08);
-  border-color: rgba(212, 175, 55, 0.2);
+  background: rgba(146, 213, 71, 0.08);
+  border-color: rgba(146, 213, 71, 0.2);
 }
 
 .metric-card--secondary {
@@ -202,7 +202,7 @@
 .metric-card__value {
   font-family: var(--font-display);
   font-size: 5rem;
-  font-weight: 400;
+  font-weight: 800;
   line-height: 1;
   color: var(--color-cream);
 }
@@ -223,13 +223,13 @@
 
 .metric-card__unit {
   font-size: 1.75rem;
-  font-weight: 500;
+  font-weight: 800;
   color: var(--text-secondary);
 }
 
 .metric-card__label {
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 800;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -271,7 +271,7 @@
 
 .metric-card__confidence-label {
   font-size: 0.5625rem;
-  font-weight: 600;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
@@ -306,7 +306,7 @@
 
 .shot-display__waiting-text {
   font-size: 1.125rem;
-  font-weight: 500;
+  font-weight: 800;
   color: var(--text-secondary);
   margin: 0;
 }
@@ -343,14 +343,14 @@
     box-shadow:
       inset -8px -8px 20px rgba(0, 0, 0, 0.15),
       0 4px 20px rgba(0, 0, 0, 0.3),
-      0 0 0 0 rgba(212, 175, 55, 0);
+      0 0 0 0 rgba(146, 213, 71, 0);
   }
   50% {
     transform: scale(1.02);
     box-shadow:
       inset -8px -8px 20px rgba(0, 0, 0, 0.15),
       0 4px 20px rgba(0, 0, 0, 0.3),
-      0 0 20px 5px rgba(212, 175, 55, 0.2);
+      0 0 20px 5px rgba(146, 213, 71, 0.2);
   }
 }
 

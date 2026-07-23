@@ -92,7 +92,7 @@ test('display route shows latest shot and recent shots from mock backend session
 
   await gotoApp(page, '/display');
 
-  await expect(page.getByText('OpenFlight Display')).toBeVisible();
+  await expect(page.getByText('Launch Monitor')).toBeVisible();
   await expect(page.getByText('Socket connected')).toBeVisible();
   await expect(page.getByLabel('Recent shots').locator('.display-shot-chip')).toHaveCount(3);
   await expect(page.getByLabel('Recent shots')).toContainText('pw');

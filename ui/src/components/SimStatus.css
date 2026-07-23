@@ -12,14 +12,14 @@
   padding: var(--space-xs) var(--space-sm);
   border-radius: var(--radius-sm);
   font-size: 0.6875rem;
-  font-weight: 600;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   transition: all var(--transition-smooth);
 }
 
 .sim-status__name {
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .sim-status__state {

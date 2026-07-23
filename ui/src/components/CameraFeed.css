@@ -26,7 +26,7 @@
 .camera-feed__title {
   margin: 0;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 800;
   color: var(--color-cream);
   letter-spacing: 0.02em;
 }
@@ -43,7 +43,7 @@
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.8125rem;
-  font-weight: 600;
+  font-weight: 800;
   cursor: pointer;
   transition: all var(--transition-smooth);
   min-height: 36px;
@@ -97,7 +97,7 @@
 .camera-feed__message h3 {
   margin: 0 0 var(--space-xs) 0;
   font-size: 1.125rem;
-  font-weight: 600;
+  font-weight: 800;
   color: var(--color-cream);
 }
 
@@ -114,7 +114,7 @@
   background: rgba(251, 191, 36, 0.12);
   border: 1px solid rgba(251, 191, 36, 0.3);
   color: var(--color-warning);
-  font-weight: 600;
+  font-weight: 800;
   font-size: 0.8125rem;
 }
 
@@ -156,7 +156,7 @@
   background: rgba(0, 0, 0, 0.75);
   color: var(--color-warning);
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 800;
   letter-spacing: 0.05em;
 }
 

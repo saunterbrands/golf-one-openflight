@@ -29,12 +29,12 @@
   max-height: 100%;
   overflow-y: auto;
   background: var(--color-bg-elevated);
-  border: 1px solid rgba(212, 175, 55, 0.2);
+  border: 1px solid rgba(146, 213, 71, 0.2);
   border-radius: var(--radius-lg);
   padding: var(--space-md) var(--space-lg);
   box-shadow:
     0 10px 40px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(212, 175, 55, 0.1);
+    0 0 0 1px rgba(146, 213, 71, 0.1);
 }
 
 .club-select__close {
@@ -69,12 +69,19 @@
   transform: scale(0.92);
 }
 
+.club-select__brand {
+  display: block;
+  width: min(220px, 64%);
+  height: auto;
+  margin: 0 auto var(--space-sm);
+}
+
 .club-select__title {
   margin: 0;
   /* Leave room for the corner X so the centered title can't collide with it. */
   padding: 0 var(--space-xl);
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 800;
   font-size: 1.375rem;
   color: var(--color-gold);
   text-align: center;
@@ -98,7 +105,7 @@
 .club-select__section-title {
   display: block;
   font-size: 0.625rem;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.15em;
@@ -119,7 +126,7 @@
   color: var(--color-cream);
   font-family: var(--font-display);
   font-size: 1rem;
-  font-weight: 400;
+  font-weight: 800;
   cursor: pointer;
   transition: all var(--transition-fast);
   min-height: 44px;
@@ -135,8 +142,8 @@
 }
 
 .club-select__option--selected {
-  background: rgba(212, 175, 55, 0.15);
+  background: rgba(146, 213, 71, 0.15);
   border-color: var(--color-gold);
   color: var(--color-gold);
-  box-shadow: 0 0 12px rgba(212, 175, 55, 0.2);
+  box-shadow: 0 0 12px rgba(146, 213, 71, 0.2);
 }

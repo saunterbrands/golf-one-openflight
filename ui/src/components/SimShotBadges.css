@@ -23,7 +23,7 @@
 
 .sim-shot-badges__title {
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -51,7 +51,7 @@
 }
 
 .sim-shot-badges__value {
-  font-weight: 600;
+  font-weight: 800;
   margin-left: auto;
 }
 
@@ -63,7 +63,7 @@
   height: 14px;
   border-radius: 3px;
   font-size: 0.5625rem;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .sim-shot-badges__badge--measured {

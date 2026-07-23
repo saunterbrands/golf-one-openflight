@@ -32,6 +32,7 @@ export function ClubSelectScreen({ selectedClub, onSelect, onSkip }: ClubSelectS
           </svg>
         </button>
 
+        <img className="club-select__brand" src="/golfone-logo.svg" alt="Golf One" draggable={false} />
         <h1 className="club-select__title">Select your club</h1>
         <p className="club-select__subtitle">Choose the club you're hitting to start your session.</p>
 

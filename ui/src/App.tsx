@@ -219,7 +219,7 @@ function AppContent() {
       {showShutdown && (
         <div className="shutdown-overlay">
           <div className="shutdown-dialog">
-            <p>Shut down OpenFlight?</p>
+            <p>Shut down Golf One?</p>
             <div className="shutdown-dialog__buttons">
               <button
                 className="shutdown-dialog__confirm"

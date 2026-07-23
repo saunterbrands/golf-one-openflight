@@ -134,7 +134,7 @@ export function DisplayMode({ connected, cameraStatus, latestShot, shots }: Disp
           ) : (
             <img
               src={CAMERA_STREAM_URL}
-              alt="OpenFlight camera stream"
+              alt="Golf One camera stream"
               className="display-mode__camera-image"
               onError={() => setFailedCameraKey(cameraKey)}
               onLoad={() => setFailedCameraKey(null)}
@@ -157,7 +157,8 @@ export function DisplayMode({ connected, cameraStatus, latestShot, shots }: Disp
         </div>
 
         <div className="display-mode__shot-panel">
-          <div className="display-mode__eyebrow">OpenFlight Display</div>
+          <img className="display-mode__brand" src="/golfone-logo.svg" alt="Golf One" draggable={false} />
+          <div className="display-mode__eyebrow">Launch Monitor</div>
           <h1 className="display-mode__title">{latestShot ? latestShot.club : 'Ready'}</h1>
           <div className="display-mode__primary-grid">
             <DisplayMetricCard metric={metrics[0]} featured />

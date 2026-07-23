@@ -548,10 +548,33 @@ log "Launching kiosk browser..."
 
 KIOSK_URL="http://$HOST:$PORT"
 
-# Try different browsers in order of preference
-# DISPLAY=:0 allows running on Pi's display when SSHed in
-# --password-store=basic disables the keyring unlock prompt
-CHROME_FLAGS="--kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --password-store=basic"
+# Prefer the compositor's native Wayland socket, even when this script is
+# started over SSH and the desktop environment variables are not inherited.
+# The X11 fallback keeps the launcher usable on older Raspberry Pi OS images.
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+WAYLAND_SOCKET="${WAYLAND_DISPLAY:-}"
+if [ -z "$WAYLAND_SOCKET" ]; then
+    for candidate in "$RUNTIME_DIR"/wayland-*; do
+        if [ -S "$candidate" ]; then
+            WAYLAND_SOCKET="${candidate##*/}"
+            break
+        fi
+    done
+fi
+WAYLAND_SOCKET="${WAYLAND_SOCKET:-wayland-0}"
+CHROME_FLAGS="--kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --password-store=basic --force-prefers-reduced-motion"
+
+if [ -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]; then
+    export XDG_RUNTIME_DIR="$RUNTIME_DIR"
+    export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
+    CHROME_FLAGS="$CHROME_FLAGS --ozone-platform=wayland"
+    log "Using native Wayland kiosk rendering ($WAYLAND_DISPLAY)"
+else
+    CHROME_FLAGS="$CHROME_FLAGS --ozone-platform=x11"
+    warn "Wayland socket not found; using X11 kiosk rendering"
+fi
+
+# DISPLAY=:0 keeps the X11 fallback available when launched over SSH.
 if command -v chromium-browser &> /dev/null; then
     DISPLAY=:0 chromium-browser $CHROME_FLAGS "$KIOSK_URL" &
     BROWSER_PID=$!
@@ -569,7 +592,7 @@ else
     warn "Supported browsers: chromium-browser, chromium, google-chrome, firefox"
 fi
 
-log "OpenFlight is running! Press Ctrl+C to stop."
+log "Golf One is running! Press Ctrl+C to stop."
 
 # Wait for server process — exits when server stops (Ctrl+C or UI shutdown)
 wait $SERVER_PID

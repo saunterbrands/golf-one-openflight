@@ -3,8 +3,6 @@
    "The longest hitter of the golf ball in the world"
    ============================================================================= */
 
-@import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Bebas+Neue&display=swap');
-
 /* CSS Variables for Launch Daddy Mode */
 :root {
   --ld-fire-orange: #ff6b00;
@@ -128,7 +126,7 @@
 }
 
 .launch-daddy-brand__text {
-  font-family: 'Black Ops One', cursive;
+  font-family: var(--font-display);
   font-size: 1.1rem;
   letter-spacing: 0.05em;
   background: linear-gradient(180deg, var(--ld-chrome-gold) 0%, var(--ld-fire-orange) 50%, var(--ld-fire-red) 100%);
@@ -182,7 +180,7 @@
 
 /* Speed gauge fire theme */
 .app--launch-daddy .speed-gauge__value {
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: var(--font-display);
   font-size: 8rem;
   background: linear-gradient(
     180deg,
@@ -199,7 +197,7 @@
 }
 
 .app--launch-daddy .speed-gauge__label {
-  font-family: 'Black Ops One', cursive;
+  font-family: var(--font-display);
   color: var(--ld-fire-orange);
   letter-spacing: 0.2em;
 }
@@ -225,7 +223,7 @@
 }
 
 .app--launch-daddy .metric-card__label {
-  font-family: 'Black Ops One', cursive;
+  font-family: var(--font-display);
   letter-spacing: 0.1em;
 }
 
@@ -420,7 +418,7 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-family: 'Black Ops One', cursive;
+  font-family: var(--font-display);
   font-size: 4rem;
   text-align: center;
   background: linear-gradient(
@@ -459,7 +457,7 @@
   top: calc(50% + 60px);
   left: 50%;
   transform: translateX(-50%);
-  font-family: 'Bebas Neue', sans-serif;
+  font-family: var(--font-display);
   font-size: 1.5rem;
   color: var(--ld-chrome-gold);
   letter-spacing: 0.3em;
@@ -562,7 +560,7 @@
    ============================================================================= */
 
 .app--launch-daddy .shot-display__waiting-text {
-  font-family: 'Black Ops One', cursive;
+  font-family: var(--font-display);
   color: var(--ld-fire-orange);
   text-transform: uppercase;
   letter-spacing: 0.1em;
