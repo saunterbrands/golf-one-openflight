@@ -21,12 +21,12 @@ describe('KioskExitControl', () => {
   let container: HTMLDivElement;
   let root: Root;
   let timestamp: number;
-  let onExit: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  let onExit: ReturnType<typeof vi.fn<(pin: string) => Promise<void>>>;
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     timestamp = 10_000;
-    onExit = vi.fn<() => Promise<void>>().mockResolvedValue();
+    onExit = vi.fn<(pin: string) => Promise<void>>().mockResolvedValue();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -94,6 +94,7 @@ describe('KioskExitControl', () => {
     });
 
     expect(onExit).toHaveBeenCalledOnce();
+    expect(onExit).toHaveBeenCalledWith('0000');
     expect(container.textContent).toContain('Opening desktop…');
   });
 

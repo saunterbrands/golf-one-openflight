@@ -128,7 +128,7 @@ def test_session_installer_disables_raspberry_pi_autotouch_rewriter():
     assert "Hidden=true" in override
 
 
-def test_appliance_session_covers_the_pi_desktop_until_golf_one_maps():
+def test_appliance_session_does_not_create_the_pi_desktop_during_boot():
     repo_root = Path(__file__).resolve().parents[1]
     installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
         encoding="utf-8"
@@ -167,7 +167,9 @@ def test_appliance_session_covers_the_pi_desktop_until_golf_one_maps():
     renderer_ready = main_body.index("wait_for_browser_renderer", dashboard_started)
     cover_dismissed = main_body.index("dismiss_session_cover", renderer_ready)
     paint_waiter = main_body.index("wait_for_loading_page_ready", cover_dismissed)
-    desktop_started = main_body.index("start_raspberry_pi_desktop", paint_waiter)
+    app_waiter = main_body.index("wait_for_owned_app", paint_waiter)
+    exit_marker_check = main_body.index("if desktop_exit_is_valid", app_waiter)
+    desktop_started = main_body.index("start_raspberry_pi_desktop", exit_marker_check)
     assert (
         cover_ready
         < stale_browser_stopped
@@ -177,8 +179,22 @@ def test_appliance_session_covers_the_pi_desktop_until_golf_one_maps():
         < renderer_ready
         < cover_dismissed
         < paint_waiter
+        < app_waiter
+        < exit_marker_check
         < desktop_started
     )
+    assert main_body.count("start_raspberry_pi_desktop") == 1
+    assert 'GOLF_ONE_DESKTOP_EXIT_FILE="$DESKTOP_REQUEST_FILE"' in main_body
+    marker_validator = _bash_function_body(session, "desktop_exit_is_valid")
+    assert '[ ! -L "$DESKTOP_REQUEST_FILE" ]' in marker_validator
+    assert '"$(cat "$DESKTOP_REQUEST_FILE"' in marker_validator
+    assert '[ "$marker_mode" = "600" ]' in marker_validator
+    assert '[ "$marker_owner" = "$(id -u)" ]' in marker_validator
+    app_monitor = _bash_function_body(session, "wait_for_owned_app")
+    assert 'browser_pid_uses_profile "$BOOT_BROWSER_PID"' in app_monitor
+    assert "desktop_exit_is_valid" in app_monitor
+    assert "show_session_cover" in app_monitor
+    assert 'stop_exact_pid "$APP_PID"' in app_monitor
     assert "--ready-fd" in session
     assert "/usr/bin/lxsession-xdg-autostart" in session
     assert "/usr/bin/pcmanfm-pi" in session
@@ -527,6 +543,8 @@ def test_simulator_extension_exposes_persistent_display_settings():
     assert "golf-one-settings" in content
     assert "http://127.0.0.1:8080/?settings=1" in content
     assert "golf-one-status" in background
+    assert "{ type: 'golf-one-shutdown', pin: exitPin.value }" in content
+    assert "JSON.stringify({ pin: message.pin })" in background
 
 
 def test_simulator_extension_relays_local_shots_into_the_fuse_game():

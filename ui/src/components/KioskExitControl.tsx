@@ -14,7 +14,7 @@ interface TapSequence {
 }
 
 interface KioskExitControlProps {
-  onExit?: () => Promise<void>;
+  onExit?: (pin: string) => Promise<void>;
   now?: () => number;
 }
 
@@ -119,7 +119,7 @@ export function KioskExitControl({ onExit = requestKioskExit, now = Date.now }: 
     setIsSubmitting(true);
 
     try {
-      await onExit();
+      await onExit(pin);
     } catch {
       setError('Golf One could not open the desktop. Please try again.');
       setIsSubmitting(false);

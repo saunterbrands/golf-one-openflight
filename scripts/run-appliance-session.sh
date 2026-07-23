@@ -2,10 +2,10 @@
 #
 # Ordered graphical-session startup for the Golf One Raspberry Pi appliance.
 #
-# The session cover is established before the Raspberry Pi desktop starts.
-# Chromium then opens a local Golf One loading page immediately while the
-# backend initializes. The desktop does not start until Chromium owns the
-# visible surface and the branded loading page reports painted frames.
+# The session cover is established before Chromium opens a local Golf One
+# loading page. The Raspberry Pi desktop is not created during boot at all; it
+# is created only after the app records the authenticated 10-tap/PIN exit.
+# This avoids depending on Wayland client launch order to hide the desktop.
 #
 
 set -u
@@ -22,6 +22,7 @@ COVER_PID_FILE="$RUNTIME_DIR/golf-one-session-cover.pid"
 COVER_READY_FILE="$RUNTIME_DIR/golf-one-session-cover.ready"
 PAGE_READY_FILE="$RUNTIME_DIR/golf-one-loading-page.ready"
 PAGE_REQUEST_FILE="$RUNTIME_DIR/golf-one-loading-page.request"
+DESKTOP_REQUEST_FILE="$RUNTIME_DIR/golf-one-desktop-exit.request"
 PAGE_READY_PORT=38917
 SESSION_LOG="${GOLF_ONE_SESSION_LOG:-$HOME/golf-one-kiosk.log}"
 COVER_PID=""
@@ -55,6 +56,18 @@ stop_exact_pid() {
             kill -KILL "$pid" 2>/dev/null || true
         fi
     fi
+}
+
+process_is_live() {
+    local pid="${1:-}"
+    local state
+
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+
+    state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+    [ -n "$state" ] && [ "${state#Z}" = "$state" ]
 }
 
 stop_process_tree() {
@@ -291,6 +304,18 @@ start_raspberry_pi_desktop() {
     session_log "Raspberry Pi desktop started behind the Golf One kiosk"
 }
 
+desktop_exit_is_valid() {
+    local marker_mode marker_owner
+
+    [ -f "$DESKTOP_REQUEST_FILE" ] || return 1
+    [ ! -L "$DESKTOP_REQUEST_FILE" ] || return 1
+    [ "$(cat "$DESKTOP_REQUEST_FILE" 2>/dev/null)" = "requested" ] || return 1
+    marker_mode="$(stat -c '%a' "$DESKTOP_REQUEST_FILE" 2>/dev/null || true)"
+    marker_owner="$(stat -c '%u' "$DESKTOP_REQUEST_FILE" 2>/dev/null || true)"
+    [ "$marker_mode" = "600" ] || return 1
+    [ "$marker_owner" = "$(id -u)" ] || return 1
+}
+
 dismiss_session_cover() {
     if [ -n "$COVER_PGID" ] && process_group_exists "$COVER_PGID"; then
         stop_process_group "$COVER_PGID"
@@ -335,8 +360,25 @@ wait_for_loading_page_ready() {
         sleep 0.25
     done
 
-    session_log "FATAL: loading page did not paint within 60 seconds; desktop remains unstarted"
+    session_log "FATAL: loading page did not paint within 60 seconds"
     return 1
+}
+
+wait_for_owned_app() {
+    while process_is_live "$APP_PID"; do
+        if ! browser_pid_uses_profile "$BOOT_BROWSER_PID"; then
+            if ! desktop_exit_is_valid; then
+                session_log "FATAL: Chromium exited without an authenticated desktop exit request"
+                show_session_cover || true
+                stop_exact_pid "$APP_PID"
+            fi
+            break
+        fi
+        sleep 0.25
+    done
+
+    wait "$APP_PID" 2>/dev/null || true
+    APP_PID=""
 }
 
 cleanup_session() {
@@ -351,7 +393,11 @@ cleanup_session() {
     if [ "$SESSION_TERMINATING" = "1" ]; then
         dismiss_session_cover
     fi
-    rm -f -- "$COVER_READY_FILE" "$PAGE_READY_FILE" "$PAGE_REQUEST_FILE"
+    rm -f -- \
+        "$COVER_READY_FILE" \
+        "$PAGE_READY_FILE" \
+        "$PAGE_REQUEST_FILE" \
+        "$DESKTOP_REQUEST_FILE"
     exit "$exit_status"
 }
 
@@ -377,11 +423,14 @@ main() {
         while :; do sleep 3600; done
     fi
 
+    rm -f -- "$DESKTOP_REQUEST_FILE"
+
     start_loading_page_ready_server
     "$SCRIPT_DIR/open-kiosk-browser.sh" "$BOOT_PAGE_URL" &
     BOOT_BROWSER_PID=$!
 
     GOLF_ONE_BROWSER_ALREADY_RUNNING=1 \
+        GOLF_ONE_DESKTOP_EXIT_FILE="$DESKTOP_REQUEST_FILE" \
         GOLF_ONE_KIOSK_URL="$KIOSK_URL" \
         "$SCRIPT_DIR/launch-golf-one.sh" &
     APP_PID=$!
@@ -394,24 +443,41 @@ main() {
     fi
     dismiss_session_cover
 
-    if wait_for_loading_page_ready; then
-        # The desktop exists only for the protected exit and is created after
-        # Golf One has already painted, so it cannot appear during boot.
-        start_raspberry_pi_desktop
+    if ! wait_for_loading_page_ready; then
+        stop_process_tree "$PAGE_READY_SERVER_PID"
+        PAGE_READY_SERVER_PID=""
+        show_session_cover || true
+        while :; do sleep 3600; done
     fi
     wait "$PAGE_READY_SERVER_PID" 2>/dev/null || true
     PAGE_READY_SERVER_PID=""
     rm -f -- "$PAGE_REQUEST_FILE"
-    wait "$APP_PID"
-    APP_PID=""
+    wait_for_owned_app
 
     # If a server survived a graphical-session restart, launch-golf-one
-    # intentionally reuses it and returns immediately. Keep this session
+    # intentionally reuses it and returns immediately. Keep the appliance
     # wrapper alive until that server or the exact boot browser exits.
     while kill -0 "$BOOT_BROWSER_PID" 2>/dev/null \
         && curl -fsS --max-time 2 "$KIOSK_URL" >/dev/null 2>&1; do
         sleep 1
     done
+
+    if desktop_exit_is_valid; then
+        rm -f -- "$DESKTOP_REQUEST_FILE"
+        session_log "Authenticated Golf One exit received; starting Raspberry Pi desktop"
+        start_raspberry_pi_desktop
+        dismiss_session_cover
+        return 0
+    fi
+
+    # A server crash or unverified Chromium close must never expose the Pi
+    # desktop. Re-establish the branded cover and leave SSH as the recovery
+    # path until the graphical session is deliberately restarted.
+    session_log "FATAL: Golf One stopped without an authenticated desktop exit request"
+    if [ -z "$COVER_PGID" ] || ! process_group_exists "$COVER_PGID"; then
+        show_session_cover || true
+    fi
+    while :; do sleep 3600; done
 }
 
 trap cleanup_session EXIT

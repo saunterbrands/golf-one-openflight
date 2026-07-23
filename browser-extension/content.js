@@ -733,7 +733,7 @@
     }
 
     exitMessage.textContent = 'Opening the Raspberry Pi desktop…';
-    const response = await send({ type: 'golf-one-shutdown' });
+    const response = await send({ type: 'golf-one-shutdown', pin: exitPin.value });
     if (!response.ok) {
       exitMessage.textContent = response.error || 'Golf One could not open the desktop.';
       exitPin.focus();

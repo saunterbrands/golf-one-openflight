@@ -9,19 +9,21 @@ describe('requestKioskExit', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('{"status":"shutting_down"}', { status: 200 }));
 
-    await requestKioskExit();
+    await requestKioskExit('0000');
 
     expect(fetchMock).toHaveBeenCalledWith('/api/shutdown', {
       method: 'POST',
       headers: {
         Accept: 'application/json',
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({ pin: '0000' }),
     });
   });
 
   it('rejects an unsuccessful response', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 503 }));
 
-    await expect(requestKioskExit()).rejects.toThrow('status 503');
+    await expect(requestKioskExit('0000')).rejects.toThrow('status 503');
   });
 });

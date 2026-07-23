@@ -4,6 +4,7 @@ WebSocket server for OpenFlight UI.
 Provides real-time shot data to the web frontend via Flask-SocketIO.
 """
 
+import hmac
 import ipaddress
 import json
 import logging
@@ -200,6 +201,51 @@ def _shutdown_process_after_delay(delay_s: float = 0.5) -> None:
     _cleanup_hardware_for_shutdown()
     logger.info("[SERVER] Goodbye")
     os._exit(0)
+
+
+def _record_desktop_exit_request() -> bool:
+    """Record the explicit kiosk exit so the appliance may create the desktop."""
+    marker_path = os.environ.get("GOLF_ONE_DESKTOP_EXIT_FILE")
+    if not marker_path:
+        return True
+
+    marker = Path(marker_path)
+    descriptor = None
+    created = False
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(marker, flags, 0o600)
+        created = True
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as marker_file:
+            descriptor = None
+            marker_file.write("requested\n")
+            marker_file.flush()
+            os.fsync(marker_file.fileno())
+    except OSError:
+        if descriptor is not None:
+            os.close(descriptor)
+        if created:
+            marker.unlink(missing_ok=True)
+        logger.error(
+            "[SERVER] Could not record the authenticated desktop exit request",
+            exc_info=True,
+        )
+        return False
+    return True
+
+
+def _clear_desktop_exit_request() -> None:
+    """Remove a marker when shutdown could not be started."""
+    marker_path = os.environ.get("GOLF_ONE_DESKTOP_EXIT_FILE")
+    if not marker_path:
+        return
+    try:
+        Path(marker_path).unlink(missing_ok=True)
+    except OSError:
+        logger.error("[SERVER] Could not clear the desktop exit request", exc_info=True)
 
 
 # Baseline launch angles by club (TrackMan data)
@@ -1298,7 +1344,21 @@ def static_files(path):
 def api_shutdown():
     """Cleanly shut down the server via REST API."""
     logger.info("[SERVER] Shutdown requested via REST API")
-    threading.Thread(target=_shutdown_process_after_delay, daemon=True).start()
+    data = request.get_json(silent=True)
+    supplied_pin = data.get("pin") if isinstance(data, dict) else None
+    expected_pin = os.environ.get("GOLF_ONE_KIOSK_EXIT_PIN", "0000")
+    if not isinstance(supplied_pin, str) or not hmac.compare_digest(
+        supplied_pin, expected_pin
+    ):
+        return {"error": "The administrator PIN is not correct."}, 403
+    if not _record_desktop_exit_request():
+        return {"error": "Could not prepare the Raspberry Pi desktop."}, 503
+    try:
+        threading.Thread(target=_shutdown_process_after_delay, daemon=True).start()
+    except Exception:  # pragma: no cover - defensive platform failure
+        _clear_desktop_exit_request()
+        logger.error("[SERVER] Could not start the shutdown worker", exc_info=True)
+        return {"error": "Could not start the Raspberry Pi desktop transition."}, 503
     return {"status": "shutting_down"}, 200
 
 

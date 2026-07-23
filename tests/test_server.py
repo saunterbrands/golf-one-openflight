@@ -22,6 +22,130 @@ from openflight.server import (
 class TestShutdownCleanup:
     """Tests for UI/server shutdown hardware cleanup."""
 
+    def test_shutdown_records_authenticated_desktop_exit_before_stopping(
+        self, monkeypatch, tmp_path
+    ):
+        """The appliance session must distinguish the PIN exit from a crash."""
+        marker = tmp_path / "desktop-exit.request"
+        started_threads = []
+
+        class DeferredThread:
+            def __init__(self, *, target, daemon):
+                self.target = target
+                self.daemon = daemon
+
+            def start(self):
+                started_threads.append(self)
+
+        monkeypatch.setenv("GOLF_ONE_DESKTOP_EXIT_FILE", str(marker))
+        monkeypatch.setattr(server_module.threading, "Thread", DeferredThread)
+
+        response = server_module.app.test_client().post(
+            "/api/shutdown", json={"pin": "0000"}
+        )
+
+        assert response.status_code == 200
+        assert marker.read_text(encoding="utf-8") == "requested\n"
+        assert marker.stat().st_mode & 0o777 == 0o600
+        assert len(started_threads) == 1
+        assert started_threads[0].target is server_module._shutdown_process_after_delay
+        assert started_threads[0].daemon is True
+
+    def test_shutdown_refuses_to_stop_when_desktop_exit_cannot_be_recorded(
+        self, monkeypatch, tmp_path
+    ):
+        """A failed marker cannot turn a later server crash into a desktop exit."""
+        marker = tmp_path / "missing" / "desktop-exit.request"
+        started_threads = []
+
+        monkeypatch.setenv("GOLF_ONE_DESKTOP_EXIT_FILE", str(marker))
+        monkeypatch.setattr(
+            server_module.threading,
+            "Thread",
+            lambda **kwargs: started_threads.append(kwargs),
+        )
+
+        response = server_module.app.test_client().post(
+            "/api/shutdown", json={"pin": "0000"}
+        )
+
+        assert response.status_code == 503
+        assert not marker.exists()
+        assert started_threads == []
+
+    def test_shutdown_rejects_a_pin_that_was_not_verified_by_the_server(
+        self, monkeypatch, tmp_path
+    ):
+        """The browser's client-side PIN check is not the trust boundary."""
+        marker = tmp_path / "desktop-exit.request"
+        monkeypatch.setenv("GOLF_ONE_DESKTOP_EXIT_FILE", str(marker))
+
+        response = server_module.app.test_client().post(
+            "/api/shutdown", json={"pin": "1234"}
+        )
+
+        assert response.status_code == 403
+        assert not marker.exists()
+
+    def test_shutdown_removes_partial_marker_when_atomic_write_fails(
+        self, monkeypatch, tmp_path
+    ):
+        """A partial marker can never authorize a later unrelated crash."""
+        marker = tmp_path / "desktop-exit.request"
+        monkeypatch.setenv("GOLF_ONE_DESKTOP_EXIT_FILE", str(marker))
+        monkeypatch.setattr(
+            server_module.os,
+            "fsync",
+            lambda _descriptor: (_ for _ in ()).throw(OSError("disk full")),
+        )
+
+        response = server_module.app.test_client().post(
+            "/api/shutdown", json={"pin": "0000"}
+        )
+
+        assert response.status_code == 503
+        assert not marker.exists()
+
+    def test_shutdown_removes_marker_when_worker_cannot_start(
+        self, monkeypatch, tmp_path
+    ):
+        """Thread-start failure cannot leave authority for a later crash."""
+        marker = tmp_path / "desktop-exit.request"
+
+        class FailingThread:
+            def __init__(self, **_kwargs):
+                pass
+
+            def start(self):
+                raise RuntimeError("thread unavailable")
+
+        monkeypatch.setenv("GOLF_ONE_DESKTOP_EXIT_FILE", str(marker))
+        monkeypatch.setattr(server_module.threading, "Thread", FailingThread)
+
+        response = server_module.app.test_client().post(
+            "/api/shutdown", json={"pin": "0000"}
+        )
+
+        assert response.status_code == 503
+        assert not marker.exists()
+
+    def test_duplicate_shutdown_cannot_remove_the_first_valid_marker(
+        self, monkeypatch, tmp_path
+    ):
+        """O_EXCL failure must preserve authority already granted to shutdown."""
+        marker = tmp_path / "desktop-exit.request"
+        marker.write_text("requested\n", encoding="utf-8")
+        marker.chmod(0o600)
+        monkeypatch.setenv("GOLF_ONE_DESKTOP_EXIT_FILE", str(marker))
+
+        response = server_module.app.test_client().post(
+            "/api/shutdown", json={"pin": "0000"}
+        )
+
+        assert response.status_code == 503
+        assert marker.read_text(encoding="utf-8") == "requested\n"
+        assert marker.stat().st_mode & 0o777 == 0o600
+
     def test_shutdown_cleanup_continues_if_kld7_stop_fails(self, monkeypatch):
         """One hardware cleanup failure must not skip OPS rolling-buffer cleanup."""
         calls = []

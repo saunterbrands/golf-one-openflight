@@ -53,7 +53,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       break;
     case 'golf-one-shutdown':
-      operation = request('/api/shutdown', { method: 'POST' });
+      operation = request('/api/shutdown', {
+        method: 'POST',
+        body: JSON.stringify({ pin: message.pin }),
+      });
       break;
     case 'golf-one-game-session':
       if (!isSimulatorSender(sender)) return false;
