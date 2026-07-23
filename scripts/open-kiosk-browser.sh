@@ -11,6 +11,8 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 KIOSK_URL="${1:-http://localhost:8080/?autolaunch=1}"
 PROFILE_DIR="${GOLF_ONE_BROWSER_PROFILE_DIR:-$HOME/.config/golf-one-kiosk/chromium}"
 EXTENSION_DIR="${GOLF_ONE_BROWSER_EXTENSION_DIR:-$PROJECT_DIR/browser-extension}"
+EXTENSION_CACHE_ROOT="${GOLF_ONE_BROWSER_EXTENSION_CACHE_DIR:-$HOME/.cache/golf-one-kiosk/extensions}"
+EXTENSION_RUNTIME_DIR="$EXTENSION_DIR"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 WAYLAND_SOCKET="${WAYLAND_DISPLAY:-}"
 
@@ -40,10 +42,34 @@ CHROME_FLAGS=(
 )
 
 if [ -f "$EXTENSION_DIR/manifest.json" ]; then
+    # Chromium can retain an old Manifest V3 service worker in a persistent
+    # profile even after an unpacked extension changes on disk. Loading each
+    # source fingerprint from its own immutable path guarantees that the
+    # background worker and content script come from the same build.
+    if command -v sha256sum &>/dev/null; then
+        EXTENSION_FINGERPRINT="$(
+            sha256sum "$EXTENSION_DIR/manifest.json" "$EXTENSION_DIR/background.js" "$EXTENSION_DIR/content.js" \
+                | sha256sum \
+                | awk '{print $1}'
+        )"
+    else
+        EXTENSION_FINGERPRINT="$(
+            cksum "$EXTENSION_DIR/manifest.json" "$EXTENSION_DIR/background.js" "$EXTENSION_DIR/content.js" \
+                | cksum \
+                | awk '{print $1}'
+        )"
+    fi
+    EXTENSION_RUNTIME_DIR="$EXTENSION_CACHE_ROOT/$EXTENSION_FINGERPRINT"
+    if [ ! -f "$EXTENSION_RUNTIME_DIR/manifest.json" ]; then
+        mkdir -p "$EXTENSION_RUNTIME_DIR"
+        cp -R "$EXTENSION_DIR/." "$EXTENSION_RUNTIME_DIR/"
+    fi
+
     CHROME_FLAGS+=(
-        "--disable-extensions-except=$EXTENSION_DIR"
-        "--load-extension=$EXTENSION_DIR"
+        "--disable-extensions-except=$EXTENSION_RUNTIME_DIR"
+        "--load-extension=$EXTENSION_RUNTIME_DIR"
     )
+    echo "[Golf One] Loading extension build ${EXTENSION_FINGERPRINT:0:12}"
 fi
 
 if [ -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]; then

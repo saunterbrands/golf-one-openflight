@@ -37,6 +37,18 @@ def test_kiosk_prefers_native_wayland_and_reduced_motion():
     assert "--load-extension=" in browser_script
 
 
+def test_kiosk_fingerprints_extension_source_to_avoid_stale_service_workers():
+    repo_root = Path(__file__).resolve().parents[1]
+    browser_script = (repo_root / "scripts/open-kiosk-browser.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "EXTENSION_FINGERPRINT" in browser_script
+    assert "EXTENSION_RUNTIME_DIR" in browser_script
+    assert 'sha256sum "$EXTENSION_DIR/manifest.json"' in browser_script
+    assert '"--load-extension=$EXTENSION_RUNTIME_DIR"' in browser_script
+
+
 def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
     repo_root = Path(__file__).resolve().parents[1]
     launcher = (repo_root / "scripts/launch-golf-one.sh").read_text(encoding="utf-8")
