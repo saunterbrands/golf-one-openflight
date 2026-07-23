@@ -19,7 +19,9 @@ KIOSK_URL="${GOLF_ONE_KIOSK_URL:-http://localhost:8080/}"
 BOOT_PAGE="$PROJECT_DIR/scripts/setup/kiosk-loading.html"
 BOOT_PAGE_URL="file://$BOOT_PAGE#$KIOSK_URL"
 COVER_IMAGE="$PROJECT_DIR/scripts/setup/session-cover.png"
+COVER_VERIFIER="$PROJECT_DIR/scripts/setup/verify-session-cover.py"
 COVER_PID_FILE="$RUNTIME_DIR/golf-one-session-cover.pid"
+COVER_PROOF_FILE="$RUNTIME_DIR/golf-one-session-cover-proof.png"
 PAGE_READY_FILE="$RUNTIME_DIR/golf-one-loading-page.ready"
 PAGE_REQUEST_FILE="$RUNTIME_DIR/golf-one-loading-page.request"
 DESKTOP_REQUEST_FILE="$RUNTIME_DIR/golf-one-desktop-exit.request"
@@ -159,6 +161,11 @@ show_session_cover() {
         session_log "FATAL: session cover is missing: $COVER_IMAGE"
         return 1
     fi
+    if [ ! -f "$COVER_VERIFIER" ]; then
+        session_log "FATAL: session cover verifier is missing: $COVER_VERIFIER"
+        return 1
+    fi
+    rm -f -- "$COVER_PROOF_FILE"
 
     /usr/bin/setsid /usr/bin/swaybg \
         --output DSI-2 \
@@ -186,14 +193,15 @@ show_session_cover() {
     printf '%s %s\n' "$COVER_PID" "$COVER_PGID" >"$COVER_PID_FILE"
 
     for _ in $(seq 1 40); do
-        if process_is_live "$COVER_PID"; then
-            # swaybg connects, creates its layer surface, and commits it before
-            # entering the event loop represented by this stable live process.
-            sleep 0.1
-            if process_is_live "$COVER_PID"; then
+        if process_is_live "$COVER_PID" \
+            && /usr/bin/grim -o DSI-2 "$COVER_PROOF_FILE" 2>/dev/null \
+            && /usr/bin/python3 \
+                "$COVER_VERIFIER" \
+                "$COVER_IMAGE" \
+                "$COVER_PROOF_FILE" >/dev/null 2>&1; then
                 session_log "Golf One background ready (pid $COVER_PID, pgid $COVER_PGID)"
+                rm -f -- "$COVER_PROOF_FILE"
                 return 0
-            fi
         fi
         if ! kill -0 "$COVER_PID" 2>/dev/null; then
             break
@@ -205,7 +213,7 @@ show_session_cover() {
     stop_process_group "$COVER_PGID"
     COVER_PID=""
     COVER_PGID=""
-    rm -f -- "$COVER_PID_FILE"
+    rm -f -- "$COVER_PID_FILE" "$COVER_PROOF_FILE"
     return 1
 }
 
@@ -397,6 +405,7 @@ cleanup_session() {
         dismiss_session_cover
     fi
     rm -f -- \
+        "$COVER_PROOF_FILE" \
         "$PAGE_READY_FILE" \
         "$PAGE_REQUEST_FILE" \
         "$DESKTOP_REQUEST_FILE"

@@ -225,6 +225,7 @@ def test_appliance_background_is_fail_closed_and_tracks_the_exact_swaybg_process
     for prerequisite in (
         r"if \[ ! -x /usr/bin/swaybg \]; then",
         r'if \[ ! -f "\$COVER_IMAGE" \]; then',
+        r'if \[ ! -f "\$COVER_VERIFIER" \]; then',
     ):
         guard = re.search(
             rf"(?ms){prerequisite}(?P<body>.*?)^[ \t]*fi[ \t]*$",
@@ -241,12 +242,14 @@ def test_appliance_background_is_fail_closed_and_tracks_the_exact_swaybg_process
     assert '--output DSI-2' in show_cover
     assert '--image "$COVER_IMAGE"' in show_cover
     assert "--mode fill" in show_cover
+    assert "/usr/bin/grim -o DSI-2" in show_cover
+    assert '"$COVER_VERIFIER"' in show_cover
     pid_capture = re.search(r'(?P<variable>COVER_PID|cover_pid)=(?:"\$!"|\$!)', show_cover)
     assert pid_capture is not None
     pgid_capture = show_cover.index('candidate_pgid="$(ps -o pgid=')
     pid_write = show_cover.index('"$COVER_PID" "$COVER_PGID" >"$COVER_PID_FILE"')
-    stable_live_check = show_cover.index('process_is_live "$COVER_PID"')
-    assert pid_capture.start() < pgid_capture < pid_write < stable_live_check
+    pixel_proof = show_cover.index("/usr/bin/grim -o DSI-2")
+    assert pid_capture.start() < pgid_capture < pid_write < pixel_proof
     assert 'if [ "$candidate_pgid" = "$COVER_PID" ]; then' in show_cover
     assert 'COVER_PGID="$candidate_pgid"' in show_cover
     assert 'stop_process_group "$COVER_PGID"' in show_cover

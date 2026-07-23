@@ -41,6 +41,7 @@ for required in \
     "$SCRIPT_DIR/golf-one-wayland.desktop" \
     "$SCRIPT_DIR/autotouch.desktop" \
     "$SCRIPT_DIR/session-cover.png" \
+    "$SCRIPT_DIR/verify-session-cover.py" \
     "$SCRIPT_DIR/kiosk-loading.html" \
     "$PROJECT_DIR/scripts/start-appliance-session-compositor.sh" \
     "$PROJECT_DIR/scripts/run-appliance-session.sh" \
@@ -59,6 +60,14 @@ fi
 if ! command -v swaybg >/dev/null 2>&1; then
     echo "swaybg is required for the branded appliance background." >&2
     echo "Install it with: sudo apt install swaybg" >&2
+    exit 1
+fi
+if [ ! -x /usr/bin/grim ]; then
+    echo "grim is required to verify the branded background on the display." >&2
+    exit 1
+fi
+if ! /usr/bin/python3 -c 'import zlib' >/dev/null 2>&1; then
+    echo "Python 3 with zlib is required to verify the branded background." >&2
     exit 1
 fi
 if [ ! -x /usr/bin/nc ]; then

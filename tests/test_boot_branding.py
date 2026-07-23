@@ -1,6 +1,8 @@
 """Contracts for the Golf One Raspberry Pi boot branding."""
 
 import struct
+import subprocess
+import sys
 import zlib
 from pathlib import Path
 
@@ -128,3 +130,27 @@ def test_plymouth_installer_selects_and_embeds_the_golf_one_theme():
     assert "vt.global_cursor_default=0" in installer
     assert "Window.SetBackgroundTopColor(0.090, 0.227, 0.188);" in theme_script
     assert "Window.SetBackgroundBottomColor(0.090, 0.227, 0.188);" in theme_script
+
+
+def test_session_cover_verifier_accepts_cover_and_rejects_wrong_frame():
+    repo_root = Path(__file__).resolve().parents[1]
+    verifier = repo_root / "scripts/setup/verify-session-cover.py"
+    cover = repo_root / "scripts/setup/session-cover.png"
+    wrong_frame = repo_root / "scripts/setup/plymouth/golf-one/splash.png"
+
+    accepted = subprocess.run(
+        [sys.executable, verifier, cover, cover],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    rejected = subprocess.run(
+        [sys.executable, verifier, cover, wrong_frame],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert accepted.returncode == 0, accepted.stderr
+    assert rejected.returncode == 1
+    assert "does not match" in rejected.stderr
