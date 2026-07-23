@@ -26,7 +26,7 @@ async function request(path, options = {}) {
 
 function isOpenGolfSimSender(sender) {
   try {
-    const senderUrl = sender?.url || sender?.tab?.url || '';
+    const senderUrl = sender?.origin || sender?.url || sender?.tab?.url || '';
     return new URL(senderUrl).origin === 'https://app.opengolfsim.com';
   } catch {
     return false;

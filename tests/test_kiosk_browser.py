@@ -138,6 +138,7 @@ def test_simulator_extension_relays_local_shots_into_the_fuse_game():
     assert "/api/opengolfsim/browser/poll" in background
     assert "/api/opengolfsim/browser/ack" in background
     assert "'X-Golf-One-Extension': 'browser-relay-v1'" in background
+    assert "sender?.origin" in background
 
 
 def test_simulator_extension_defaults_to_full_width_with_recoverable_controls():
