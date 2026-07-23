@@ -39,11 +39,29 @@ else
         -N labwc="http://openbox.org/3.4/rc" \
         -d '/labwc:openbox_config/labwc:touch[@deviceName="Goodix Capacitive TouchScreen"]' \
         -d '/labwc:openbox_config/labwc:libinput/labwc:device[@category="Goodix Capacitive TouchScreen"]' \
-        -s '/labwc:openbox_config' -t elem -n libinput -v '' \
-        -s '/labwc:openbox_config/libinput[last()]' -t elem -n device -v '' \
-        -i '/labwc:openbox_config/libinput[last()]/device' -t attr \
+        "$RC_TEMP"
+    xmlstarlet ed -P -L \
+        -N labwc="http://openbox.org/3.4/rc" \
+        -d '/labwc:openbox_config/labwc:libinput[not(*)]' \
+        "$RC_TEMP"
+
+    LIBINPUT_COUNT="$(xmlstarlet sel \
+        -N labwc="http://openbox.org/3.4/rc" \
+        -t -v 'count(/labwc:openbox_config/labwc:libinput)' \
+        "$RC_TEMP")"
+    if [ "$LIBINPUT_COUNT" = "0" ]; then
+        xmlstarlet ed -P -L \
+            -N labwc="http://openbox.org/3.4/rc" \
+            -s '/labwc:openbox_config' -t elem -n libinput -v '' \
+            "$RC_TEMP"
+    fi
+
+    xmlstarlet ed -P -L \
+        -N labwc="http://openbox.org/3.4/rc" \
+        -s '/labwc:openbox_config/labwc:libinput[last()]' -t elem -n device -v '' \
+        -i '/labwc:openbox_config/labwc:libinput[last()]/device' -t attr \
             -n category -v 'Goodix Capacitive TouchScreen' \
-        -s '/labwc:openbox_config/libinput[last()]/device' -t elem \
+        -s '/labwc:openbox_config/labwc:libinput[last()]/device' -t elem \
             -n calibrationMatrix -v '0 -1 1 1 0 0' \
         "$RC_TEMP"
     xmlstarlet val -w "$RC_TEMP" >/dev/null
