@@ -22,7 +22,7 @@ The sound trigger detects club impact to precisely time radar captures. Essentia
 |------|-------------|------|--------|
 | **SparkFun SEN-14262** | Sound Detector with envelope/gate outputs | [SparkFun](https://www.sparkfun.com/products/14262) | $12 |
 | **Through-hole resistor** | For R17 pad on SEN-14262 to reduce sensitivity (see note) | Any electronics supplier | $1 |
-| **Jumper Wires** | 3 wires: GATE → HOST_INT, VCC → 3.3V, GND → GND | Any | $5 |
+| **Jumper Wires** | 4 wires: GATE → HOST_INT, SEN VCC → 3.3V, SEN GND → GND, OPS J3 Pin 10 → GND | Any | $5 |
 
 > **R17 resistor:** The SEN-14262 is rated for 5V but runs at 3.3V in this setup, which can cause the GATE output to stick high. Soldering a resistor into the R17 through-hole position (in parallel with the onboard 100kΩ R3) reduces preamp gain and fixes this. Start with 47kΩ; use a lower value (e.g. 33kΩ) if the sensor is still too sensitive for your environment.
 
@@ -36,7 +36,7 @@ SEN-14262               Raspberry Pi           OPS243
 │ GATE ─────┼──────────┼──────────┼──────────┤ HOST_INT │
 │           │          │          │          │ (J3 P3)  │
 │ GND ──────┼──────────┤ GND      ├──────────┤ GND      │
-│           │          │          │          │ (J3 P1)  │
+│           │          │          │          │ (J3 P10) │
 └───────────┘          └──────────┘          └──────────┘
 ```
 

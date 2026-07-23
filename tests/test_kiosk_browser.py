@@ -62,12 +62,15 @@ def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
     assert "DEFAULT_ARGS=(--mock --sim)" in launcher
     assert "udevadm info -q property" in launcher
     assert "ID_VENDOR_ID=0483" in launcher
+    assert "ID_VENDOR_ID=058b" in launcher
+    assert "ID_MODEL_ID=0058" in launcher
     assert "GOLF_ONE_RADAR_PORT" in launcher
     assert 'compgen -G "/dev/ttyACM*"' not in launcher
     assert "DEFAULT_ARGS=(--sim)" in launcher
     assert "flock -n 9" in launcher
-    assert "Name=Golf One Simulator" in desktop
+    assert "Name=Golf One" in desktop
     assert "/home/openflight/golf-one-openflight/scripts/launch-golf-one.sh" in desktop
+    assert "--mock" not in desktop
 
 
 def test_session_installer_preserves_rotation_and_installs_recovery_launcher():

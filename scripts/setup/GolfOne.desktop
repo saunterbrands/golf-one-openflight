@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=Golf One Simulator
-Comment=Launch or recover the Golf One launch monitor and OpenGolfSim view
-Exec=/home/openflight/golf-one-openflight/scripts/launch-golf-one.sh --mock --sim
+Name=Golf One
+Comment=Launch or recover Golf One with automatic radar detection
+Exec=/home/openflight/golf-one-openflight/scripts/launch-golf-one.sh
 Icon=/home/openflight/golf-one-openflight/ui/public/golfone-icon.svg
 Terminal=false
 Type=Application

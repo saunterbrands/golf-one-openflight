@@ -31,6 +31,15 @@ ops243_is_present() {
     for device in /dev/ttyACM* /dev/ttyUSB*; do
         [ -e "$device" ] || continue
         properties="$(udevadm info -q property -n "$device" 2>/dev/null || true)"
+        # Current OPS243-A boards enumerate through the Infineon IFX CDC
+        # interface as USB 058b:0058. Require the exact pair so another
+        # Infineon serial device cannot accidentally enable real-radar mode.
+        if printf '%s\n' "$properties" | grep -Eq '^ID_VENDOR_ID=058b$' \
+            && printf '%s\n' "$properties" | grep -Eq '^ID_MODEL_ID=0058$'; then
+            return 0
+        fi
+
+        # Preserve detection for legacy boards and explicitly named devices.
         if printf '%s\n' "$properties" | grep -Eiq \
             '(^ID_VENDOR_ID=0483$|OmniPreSense|OPS243)'; then
             return 0
