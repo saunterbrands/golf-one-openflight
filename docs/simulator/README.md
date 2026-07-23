@@ -54,14 +54,14 @@ OPS243 + K-LD7  ──►  shot pipeline  ──►  on_shot_detected()
                                        resolve_shot(shot)            ← sim/resolver.py
                                               │  ResolvedShot + provenance
                                               ▼
-                        ┌─────────────────────┼─────────────────────┐
-                        ▼                     ▼                     ▼
-              GSPro OpenConnect     OpenGolfSim native TCP   OpenGolfSim Web
-               (gspro/codec.py)    (opengolfsim/codec.py)   (web_bridge.py)
-                        │                     │                     │
-                  TcpSimClient           TcpSimClient        one Pi-owned WS
-                        ▼                     ▼                     ▼
-                    GSPro :921        OpenGolfSim :3111      OpenGolfSim WebGL
+                        ┌─────────────────────┼───────────────────────────┐
+                        ▼                     ▼                           ▼
+              GSPro OpenConnect     OpenGolfSim native TCP     OpenGolfSim Web
+               (gspro/codec.py)    (opengolfsim/codec.py)   (browser_relay.py)
+                        │                     │                           │
+                  TcpSimClient           TcpSimClient          Chromium extension
+                        ▼                     ▼                           ▼
+                    GSPro :921        OpenGolfSim :3111          FUSE postMessage
 ```
 
 The design separates the parts that are **shared across all simulators** from

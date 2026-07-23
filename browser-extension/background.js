@@ -5,6 +5,7 @@ async function request(path, options = {}) {
     ...options,
     headers: {
       Accept: 'application/json',
+      'X-Golf-One-Extension': 'browser-relay-v1',
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
     },
@@ -23,7 +24,16 @@ async function request(path, options = {}) {
   return data;
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+function isOpenGolfSimSender(sender) {
+  try {
+    const senderUrl = sender?.url || sender?.tab?.url || '';
+    return new URL(senderUrl).origin === 'https://app.opengolfsim.com';
+  } catch {
+    return false;
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   let operation;
 
   switch (message?.type) {
@@ -38,6 +48,44 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break;
     case 'golf-one-shutdown':
       operation = request('/api/shutdown', { method: 'POST' });
+      break;
+    case 'golf-one-game-session':
+      if (!isOpenGolfSimSender(sender)) return false;
+      operation = request('/api/opengolfsim/browser/session', {
+        method: 'POST',
+        body: JSON.stringify({
+          state: message.state,
+          session_id: message.sessionId,
+        }),
+      });
+      break;
+    case 'golf-one-game-poll':
+      if (!isOpenGolfSimSender(sender)) return false;
+      operation = request('/api/opengolfsim/browser/poll', {
+        method: 'POST',
+        body: JSON.stringify({
+          session_id: message.sessionId,
+          after: message.after,
+        }),
+      });
+      break;
+    case 'golf-one-game-ack':
+      if (!isOpenGolfSimSender(sender)) return false;
+      operation = request('/api/opengolfsim/browser/ack', {
+        method: 'POST',
+        body: JSON.stringify({
+          session_id: message.sessionId,
+          sequence: message.sequence,
+          state: message.state,
+          result: message.result,
+        }),
+      });
+      break;
+    case 'golf-one-game-test-shot':
+      if (!isOpenGolfSimSender(sender)) return false;
+      operation = request('/api/opengolfsim/browser/test-shot', {
+        method: 'POST',
+      });
       break;
     default:
       return false;

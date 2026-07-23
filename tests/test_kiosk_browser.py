@@ -118,3 +118,42 @@ def test_simulator_extension_exposes_persistent_display_settings():
     assert "golf-one-settings" in content
     assert "http://127.0.0.1:8080/?settings=1" in content
     assert "golf-one-status" in background
+
+
+def test_simulator_extension_relays_local_shots_into_the_fuse_game():
+    repo_root = Path(__file__).resolve().parents[1]
+    content = (repo_root / "browser-extension/content.js").read_text(encoding="utf-8")
+    background = (repo_root / "browser-extension/background.js").read_text(encoding="utf-8")
+
+    assert 'iframe[title="fuse"]' in content
+    assert "event.source !== gameFrame.contentWindow" in content
+    assert "golf-one-game-session" in content
+    assert "golf-one-game-poll" in content
+    assert "golf-one-game-ack" in content
+    assert "gameFrame.contentWindow.postMessage" in content
+    assert "new URL(gameFrame.src).origin" in content
+    assert "event.data.type === 'player'" in content
+    assert "event.data.type === 'result'" in content
+    assert "/api/opengolfsim/browser/session" in background
+    assert "/api/opengolfsim/browser/poll" in background
+    assert "/api/opengolfsim/browser/ack" in background
+    assert "'X-Golf-One-Extension': 'browser-relay-v1'" in background
+
+
+def test_simulator_extension_defaults_to_full_width_with_recoverable_controls():
+    repo_root = Path(__file__).resolve().parents[1]
+    content = (repo_root / "browser-extension/content.js").read_text(encoding="utf-8")
+
+    assert "OpenGolfSim controls" in content
+    assert "setProperty('margin-left', '0px', 'important')" in content
+    assert "restoreOpenGolfSimLayout" in content
+
+
+def test_simulator_extension_closes_stale_spa_games_and_recovers_visual_test():
+    repo_root = Path(__file__).resolve().parents[1]
+    content = (repo_root / "browser-extension/content.js").read_text(encoding="utf-8")
+
+    assert "if (gameFrame && !nextFrame)" in content
+    assert "closeGameSession('iframe-removed')" in content
+    assert "DIRECT_RANGE_RECOVERY_MS" in content
+    assert "inFlightShot = null" in content

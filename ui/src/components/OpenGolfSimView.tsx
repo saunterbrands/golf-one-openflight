@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { socketService } from '../services/socketService';
 import { getServerOrigin } from '../utils/serverOrigin';
 import './OpenGolfSimView.css';
 
 const OPEN_GOLF_SIM_WEB_URL = 'https://app.opengolfsim.com/account/simulator';
 const DISPLAY_MODE_API_URL = `${getServerOrigin()}/api/display-mode`;
+const OPEN_GOLF_SIM_API_URL = `${getServerOrigin()}/api/opengolfsim`;
 
 type BridgeState = 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
@@ -13,6 +13,14 @@ interface OpenGolfSimStatus {
   email: string;
   state: BridgeState;
   message?: string;
+  browser?: {
+    active: boolean;
+    game_state: 'inactive' | 'loading' | 'ready' | 'queued' | 'in_flight';
+    last_delivery?: {
+      state: 'queued' | 'posted' | 'completed' | 'error';
+      result?: { carry?: number; total?: number };
+    } | null;
+  };
 }
 
 const EMPTY_STATUS: OpenGolfSimStatus = {
@@ -22,12 +30,20 @@ const EMPTY_STATUS: OpenGolfSimStatus = {
 };
 
 const statusCopy = (status: OpenGolfSimStatus) => {
+  if (status.browser?.active && status.browser.game_state === 'ready') {
+    const carry = status.browser.last_delivery?.result?.carry;
+    return typeof carry === 'number' ? `Game ready — last carry ${Math.round(carry)} yd` : 'OpenGolfSim game ready';
+  }
+  if (status.browser?.active && (status.browser.game_state === 'queued' || status.browser.game_state === 'in_flight')) {
+    return 'Shot is playing in OpenGolfSim';
+  }
+  if (status.browser?.active) return 'OpenGolfSim course is loading';
   if (status.state === 'connected') return 'Shot bridge connected';
   if (status.state === 'connecting') return 'Connecting shot bridge';
   if (status.state === 'reconnecting') return 'Reconnecting shot bridge';
   if (status.state === 'error') return status.message || 'OpenGolfSim needs attention';
-  if (status.configured) return status.message || 'Shot bridge offline';
-  return 'Add your OpenGolfSim email to connect shots';
+  if (status.configured) return status.message || 'Compatibility relay offline';
+  return 'Shots connect automatically when you open a course';
 };
 
 export function OpenGolfSimView() {
@@ -89,7 +105,7 @@ export function OpenGolfSimView() {
 
     const refresh = async () => {
       try {
-        const response = await fetch('/api/opengolfsim', { headers: { Accept: 'application/json' } });
+        const response = await fetch(OPEN_GOLF_SIM_API_URL, { headers: { Accept: 'application/json' } });
         if (!response.ok) throw new Error(`status ${response.status}`);
         const nextStatus = (await response.json()) as OpenGolfSimStatus;
         if (!active) return;
@@ -123,7 +139,7 @@ export function OpenGolfSimView() {
     setSaving(true);
     setFeedback('Saving account…');
     try {
-      const response = await fetch('/api/opengolfsim', {
+      const response = await fetch(OPEN_GOLF_SIM_API_URL, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -161,12 +177,12 @@ export function OpenGolfSimView() {
         </div>
 
         <p className="ogs-view__intro">
-          OpenGolfSim runs full-screen in this kiosk. Golf One keeps the launch-monitor connection alive on the Pi, even
-          when you leave this dashboard.
+          OpenGolfSim runs full-screen in this kiosk. When a course opens, Golf One connects it directly to the launch
+          monitor on this Pi—no separate device pairing is required.
         </p>
 
         <form className="ogs-view__connect" onSubmit={saveAccount}>
-          <label htmlFor="ogs-account-email">OpenGolfSim account email</label>
+          <label htmlFor="ogs-account-email">Optional compatibility relay email</label>
           <div className="ogs-view__input-row">
             <input
               id="ogs-account-email"
@@ -178,7 +194,7 @@ export function OpenGolfSimView() {
               onChange={(event) => setEmail(event.target.value)}
             />
             <button type="submit" disabled={saving || !email.trim()}>
-              {saving ? 'Saving…' : status.configured ? 'Update account' : 'Connect shots'}
+              {saving ? 'Saving…' : status.configured ? 'Update relay' : 'Save fallback'}
             </button>
           </div>
         </form>
@@ -201,9 +217,6 @@ export function OpenGolfSimView() {
             Launch OpenGolfSim
             <span aria-hidden="true">→</span>
           </button>
-          <button type="button" className="ogs-view__test" onClick={() => socketService.simulateShot()}>
-            Send test shot
-          </button>
         </div>
       </div>
 
@@ -221,7 +234,7 @@ export function OpenGolfSimView() {
           <span>02</span>
           <div>
             <strong>The Pi sends one shot</strong>
-            <p>A single device-owned bridge prevents duplicate shots from phones or extra dashboards.</p>
+            <p>The local game bridge prevents duplicate shots and waits until the course is ready.</p>
           </div>
         </div>
         <div className="ogs-view__flow-line" />
@@ -229,7 +242,7 @@ export function OpenGolfSimView() {
           <span>03</span>
           <div>
             <strong>OpenGolfSim plays it</strong>
-            <p>Sign in, choose a course, and every measured shot enters the active round.</p>
+            <p>Sign in, choose a course, and use the Golf One chip to confirm or send a mock test shot.</p>
           </div>
         </div>
         <p className="ogs-view__exit-note">

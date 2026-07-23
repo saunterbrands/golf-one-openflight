@@ -3,7 +3,8 @@
 Golf One supports both current OpenGolfSim surfaces:
 
 - **OpenGolfSim Web** runs full-screen on the Raspberry Pi and Waveshare panel.
-  A single Pi-owned WebSocket bridge sends shots independently of the browser.
+  The bundled Chromium extension sends each Pi-resolved shot directly into the
+  active FUSE game frame and reports the completed result.
 - **OpenGolfSim Desktop** on macOS or Windows can receive Golf One shots through
   its native Developer API on TCP port **3111**.
 
@@ -14,43 +15,63 @@ opens the official experimental WebGL simulator.
 
 1. Golf One opens `https://app.opengolfsim.com/account/simulator` at boot.
 2. Sign in to OpenGolfSim. The password stays entirely inside OpenGolfSim.
-3. Press the **Golf One** status chip at the lower-left.
-4. Enter the same OpenGolfSim account email and press **Connect shots**.
-5. When the chip reads **Shots connected**, select a range or course.
+3. Select a range or course.
+4. Wait for the lower-left **Golf One** chip to read **Game ready**.
+5. Hit a ball. In mock mode, open the chip and press **Send test shot**.
 
-The Pi—not the webpage—owns the account-scoped connection:
+The current OpenGolfSim Web app passes shots to its FUSE iframe with
+`window.postMessage`. Golf One follows that same native path:
 
 ```text
-wss://app.opengolfsim.com/api/YOUR_ACCOUNT_EMAIL
+Golf One shot pipeline
+        │
+        ▼
+loopback-only browser relay
+        │
+        ▼
+Golf One Chromium extension
+        │  postMessage({type: "shot", shot: ...})
+        ▼
+OpenGolfSim FUSE iframe
+        │  {type: "result", data: ...}
+        └──────────────────────────────► Golf One delivery status
 ```
 
 This design has three useful properties:
 
-- changing Golf One dashboard tabs cannot disconnect the round;
-- opening a dashboard on a phone cannot duplicate a physical shot;
-- a network outage never replays an old shot after reconnecting.
+- only the course open on the Pi can claim the local game session;
+- a second shot is rejected while the previous ball is still in flight;
+- reloads, expired sessions, and network outages never replay an old shot.
 
-The account email is stored at
-`~/.config/golf-one/opengolfsim.json` with user-only permissions. No password is
-stored by Golf One.
+The extension waits for FUSE's `player` event, which occurs after the course and
+ball are usable. A successful `postMessage` is shown as **Shot in play**; a
+matching FUSE `result` is the end-to-end completion proof.
 
 The Golf One browser extension supplies the lower-left connection control,
-Dashboard shortcut, and the protected kiosk exit on every OpenGolfSim page. Tap
-the top-right corner 10 times within three seconds, enter `0000`, then press
-Enter to return to the Raspberry Pi desktop.
+Dashboard shortcut, mock test-shot button, immersive-layout toggle, and the
+protected kiosk exit on every OpenGolfSim page. The official 320-pixel manual
+shot drawer is hidden by default so the game uses the full 1920×720 Waveshare
+panel; **Show OpenGolfSim controls** restores it. Tap the top-right corner 10
+times within three seconds, enter `0000`, then press Enter to return to the
+Raspberry Pi desktop.
+
+The account-email field is retained only as a compatibility fallback for older
+OpenGolfSim Web versions that consume the documented account WebSocket. It is
+not required for the local FUSE bridge. If entered, it is stored at
+`~/.config/golf-one/opengolfsim.json` with user-only permissions. Golf One never
+stores the OpenGolfSim password.
 
 ## Dashboard controls
 
 From the full-screen simulator, press the lower-left **Golf One** chip and then
 **Dashboard**. The dashboard's Simulator tab can:
 
-- configure or update the OpenGolfSim account email;
-- display the Pi bridge's actual connection/error state;
-- send an explicit mock test shot;
+- display the active game's actual ready/in-flight/completed state;
+- configure an optional legacy WebSocket relay email;
 - relaunch OpenGolfSim full-screen.
 
-An invalid account is shown as a permanent setup error instead of reconnecting
-forever. Correct the email to retry.
+Mock test shots are intentionally available from the Golf One chip only while a
+course is open, so the visual result and delivery state can be checked together.
 
 ## OpenGolfSim Desktop
 
@@ -126,15 +147,21 @@ Unity project template plus terrain and mesh tools:
 - [Course-building guide](https://help.opengolfsim.com/course-building/)
 - [Getting started](https://help.opengolfsim.com/course-building/getting-started/)
 
+OpenGolfSim FUSE is published under the PolyForm Noncommercial license. A Golf
+One product or other revenue-generating deployment needs commercial permission
+from OpenGolfSim; this repository's integration does not grant that permission.
+
 ## Troubleshooting
 
 - **OpenGolfSim shows Log In:** sign in or create an OpenGolfSim account.
-- **Setup needed / Invalid User:** the Golf One email must exactly match the
-  OpenGolfSim account.
-- **Connecting:** verify the Pi has internet access.
+- **Chip says Loading course:** wait for the FUSE course and ball to initialize.
+- **Chip never says Game ready:** reload the course and verify the Golf One
+  Chromium extension is enabled.
+- **Optional relay says Invalid User:** the saved fallback email must exactly
+  match the OpenGolfSim account.
 - **Desktop status stays offline:** verify the PC/Mac IP, select Developer API
   in OpenGolfSim Desktop, and allow TCP 3111 through its firewall.
-- **Shot does not play:** OpenGolfSim must be on a hittable range/course screen.
+- **Shot does not play:** the chip must say **Game ready** before impact.
 - **Shot is lost while offline:** this is intentional; stale golf shots are not
   queued or replayed.
 

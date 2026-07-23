@@ -11,7 +11,13 @@ from types import SimpleNamespace
 import pytest
 
 from openflight.launch_monitor import ClubType, Shot
+from openflight.opengolfsim.browser_relay import BrowserShotRelay
 from openflight.sim.types import ConnectionState, PlayerUpdate, ShotAck, SimError
+
+_EXTENSION_HEADERS = {
+    "Origin": "chrome-extension://golf-one-test",
+    "X-Golf-One-Extension": "browser-relay-v1",
+}
 
 
 class _FakeWebBridge:
@@ -68,6 +74,9 @@ def server(monkeypatch):
     fake_web_bridge = _FakeWebBridge()
     monkeypatch.setattr(srv, "opengolfsim_web_bridge", fake_web_bridge)
     srv._fake_web_bridge = fake_web_bridge
+    browser_relay = BrowserShotRelay(poll_timeout_s=0.001)
+    monkeypatch.setattr(srv, "opengolfsim_browser_relay", browser_relay)
+    srv._browser_relay = browser_relay
     yield srv
     # Don't leak fake connectors / player state into other test modules
     # (server.on_shot_detected reads these globals).
@@ -148,6 +157,51 @@ def test_forward_sends_one_shot_through_device_owned_web_bridge(server):
         if args[0] == "sim_shot" and args[1]["target"] == "opengolfsim-web"
     ]
     assert len(web_shots) == 1
+    assert web_shots[0][1]["fields"] == [
+        "ball_speed",
+        "vla",
+        "hla",
+        "total_spin",
+        "spin_axis",
+    ]
+
+
+def test_forward_prefers_live_browser_game_without_requiring_account_email(server):
+    session = server._browser_relay.open_session()
+
+    server._forward_shot_to_simulators(_shot())
+
+    assert server._fake_web_bridge.sent == []
+    deliveries = server._browser_relay.poll(
+        session_id=session["session_id"],
+        after=session["cursor"],
+    )
+    assert len(deliveries) == 1
+    assert deliveries[0]["payload"]["shot"]["ballSpeed"] == 140.0
+    local_shots = [
+        args
+        for args, _kwargs in server._emitted
+        if args[0] == "sim_shot" and args[1]["delivery"] == "browser"
+    ]
+    assert len(local_shots) == 1
+
+
+def test_forward_does_not_duplicate_live_browser_shot_over_cloud_bridge(server):
+    server._fake_web_bridge.configure_email("golfer@example.com")
+    session = server._browser_relay.open_session()
+
+    server._forward_shot_to_simulators(_shot())
+
+    assert server._fake_web_bridge.sent == []
+    assert (
+        len(
+            server._browser_relay.poll(
+                session_id=session["session_id"],
+                after=session["cursor"],
+            )
+        )
+        == 1
+    )
 
 
 def test_forward_reports_web_shot_lost_while_bridge_disconnected(server):
@@ -181,6 +235,85 @@ def test_opengolfsim_api_saves_account_and_starts_bridge(server, monkeypatch, tm
     assert server._fake_web_bridge.started
     assert config_path.read_text(encoding="utf-8") == '{\n  "email": "golfer@example.com"\n}\n'
     assert config_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_opengolfsim_browser_api_is_tokenized_and_loopback_only(server):
+    client = server.app.test_client()
+
+    opened = client.post(
+        "/api/opengolfsim/browser/session",
+        json={"state": "ready"},
+        headers=_EXTENSION_HEADERS,
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+    assert opened.status_code == 200
+    session = opened.get_json()
+    assert session["session_id"]
+    assert session["cursor"] == 0
+
+    polled = client.post(
+        "/api/opengolfsim/browser/poll",
+        json={"session_id": session["session_id"], "after": 0},
+        headers=_EXTENSION_HEADERS,
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+    assert polled.status_code == 200
+    assert polled.get_json()["shots"] == []
+
+    rejected = client.post(
+        "/api/opengolfsim/browser/session",
+        json={"state": "ready"},
+        headers=_EXTENSION_HEADERS,
+        environ_overrides={"REMOTE_ADDR": "192.168.0.55"},
+    )
+    assert rejected.status_code == 403
+
+
+def test_opengolfsim_browser_api_rejects_invalid_session_token(server):
+    response = server.app.test_client().post(
+        "/api/opengolfsim/browser/poll",
+        json={"session_id": "wrong", "after": 0},
+        headers=_EXTENSION_HEADERS,
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "OpenGolfSim browser session is no longer active"
+
+
+def test_opengolfsim_browser_test_shot_reaches_active_mock_game(server, monkeypatch):
+    monitor = server.MockLaunchMonitor()
+    monitor.start(shot_callback=server._forward_shot_to_simulators)
+    monkeypatch.setattr(server, "monitor", monitor)
+    session = server._browser_relay.open_session()
+
+    response = server.app.test_client().post(
+        "/api/opengolfsim/browser/test-shot",
+        headers=_EXTENSION_HEADERS,
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+
+    assert response.status_code == 202
+    delivery = server._browser_relay.poll(
+        session_id=session["session_id"],
+        after=session["cursor"],
+    )
+    assert delivery[0]["payload"]["shot"]["ballSpeed"] == 142.0
+
+
+def test_opengolfsim_browser_api_rejects_untrusted_web_origin(server):
+    response = server.app.test_client().post(
+        "/api/opengolfsim/browser/session",
+        json={"state": "ready"},
+        headers={
+            "Origin": "https://untrusted.example",
+            "X-Golf-One-Extension": "browser-relay-v1",
+        },
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+
+    assert response.status_code == 403
+    assert server._browser_relay.is_active() is False
 
 
 @pytest.mark.parametrize("email", ["", "not-an-email", "two@@example.com", "space @example.com"])

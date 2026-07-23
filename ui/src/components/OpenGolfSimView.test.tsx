@@ -7,10 +7,11 @@ describe('OpenGolfSimView', () => {
     const html = renderToString(<OpenGolfSimView />);
 
     expect(html).toContain('Play OpenGolfSim');
-    expect(html).toContain('OpenGolfSim account email');
-    expect(html).toContain('Connect shots');
+    expect(html).toContain('Optional compatibility relay email');
+    expect(html).toContain('Save fallback');
     expect(html).toContain('Launch OpenGolfSim');
     expect(html).toContain('The Pi sends one shot');
+    expect(html).toContain('Shots connect automatically when you open a course');
     expect(html).not.toContain('<iframe');
   });
 

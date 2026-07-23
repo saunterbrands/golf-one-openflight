@@ -171,6 +171,14 @@
         grid-column: 1 / -1;
       }
 
+      .golf-one-game-action {
+        grid-column: 1 / -1;
+      }
+
+      .golf-one-game-action[hidden] {
+        display: none;
+      }
+
       .golf-one-button--primary {
         border-color: var(--go-green);
         background: var(--go-green);
@@ -243,14 +251,19 @@
       <p class="golf-one-eyebrow">Display settings</p>
       <h2>Golf One Settings</h2>
       <p class="golf-one-copy">
-        Choose what appears on the Waveshare display or connect this OpenGolfSim account to Golf One.
+        Golf One sends measured shots directly into the open course on this Pi. The email below is an optional
+        compatibility relay for older OpenGolfSim Web versions.
       </p>
-      <label class="golf-one-label" for="golf-one-email">OpenGolfSim email</label>
+      <label class="golf-one-label" for="golf-one-email">Optional OpenGolfSim relay email</label>
       <input class="golf-one-input golf-one-email" id="golf-one-email" type="email" inputmode="email" autocomplete="email" />
       <div class="golf-one-actions">
         <button class="golf-one-button golf-one-dashboard" type="button">Dashboard</button>
         <button class="golf-one-button golf-one-settings" type="button">Display settings</button>
-        <button class="golf-one-button golf-one-button--primary golf-one-save" type="button">Connect shots</button>
+        <button class="golf-one-button golf-one-button--primary golf-one-save" type="button">Save fallback</button>
+        <button class="golf-one-button golf-one-game-action golf-one-test-shot" type="button" hidden>Send test shot</button>
+        <button class="golf-one-button golf-one-game-action golf-one-game-controls" type="button" hidden>
+          Show OpenGolfSim controls
+        </button>
       </div>
       <p class="golf-one-message" aria-live="polite"></p>
     </section>
@@ -289,6 +302,8 @@
   const exitPin = root.querySelector('.golf-one-pin');
   const exitMessage = root.querySelector('.golf-one-exit-message');
   const cancel = root.querySelector('.golf-one-cancel');
+  const testShot = root.querySelector('.golf-one-test-shot');
+  const gameControls = root.querySelector('.golf-one-game-controls');
 
   const send = (payload) =>
     new Promise((resolve) => {
@@ -301,19 +316,282 @@
       });
     });
 
+  let gameFrame = null;
+  let gameSessionId = '';
+  let gameCursor = 0;
+  let gamePollRunning = false;
+  let gameSessionOpening = false;
+  let inFlightShot = null;
+  let layoutSnapshot = null;
+  let immersiveLayout = true;
+  let directRangeRecoveryTimer = 0;
+  const DIRECT_RANGE_RECOVERY_MS = 15000;
+  const directRangeVerification =
+    window.location.pathname === '/fuse/examples/range/index.html' &&
+    new URLSearchParams(window.location.search).get('golf-one-test') === '1';
+
+  const setGameState = (label, connectionState = 'connected') => {
+    state.dataset.state = connectionState;
+    state.textContent = label;
+  };
+
+  const findGameFrame = () => document.querySelector('iframe[title="fuse"]');
+
+  const applyOpenGolfSimLayout = () => {
+    gameFrame = findGameFrame();
+    if (!gameFrame) return;
+
+    const gameMain = gameFrame.closest('main');
+    const drawer = gameMain?.parentElement?.querySelector('.MuiDrawer-root') || null;
+    if (!layoutSnapshot) {
+      layoutSnapshot = [drawer, gameMain, gameFrame]
+        .filter(Boolean)
+        .map((element) => ({
+          element,
+          style: element.getAttribute('style'),
+        }));
+    }
+
+    if (immersiveLayout) {
+      drawer?.style.setProperty('display', 'none', 'important');
+      gameMain?.style.setProperty('margin-left', '0px', 'important');
+      gameMain?.style.setProperty('width', '100vw', 'important');
+      gameFrame.style.setProperty('width', '100vw', 'important');
+      gameFrame.style.setProperty('height', '100vh', 'important');
+      gameControls.textContent = 'Show OpenGolfSim controls';
+    }
+    gameControls.hidden = false;
+    testShot.hidden = false;
+  };
+
+  const restoreOpenGolfSimLayout = () => {
+    for (const snapshot of layoutSnapshot || []) {
+      if (snapshot.style === null) {
+        snapshot.element.removeAttribute('style');
+      } else {
+        snapshot.element.setAttribute('style', snapshot.style);
+      }
+    }
+    gameControls.textContent = 'Hide OpenGolfSim controls';
+  };
+
+  const shotsMatch = (expected, actual) => {
+    if (!expected || !actual) return false;
+    const fields = [
+      'ballSpeed',
+      'verticalLaunchAngle',
+      'horizontalLaunchAngle',
+      'spinSpeed',
+      'spinAxis',
+    ];
+    return fields.every(
+      (field) =>
+        Number.isFinite(Number(expected[field])) &&
+        Number.isFinite(Number(actual[field])) &&
+        Math.abs(Number(expected[field]) - Number(actual[field])) <= 0.11
+    );
+  };
+
+  const acknowledgeGameShot = async (sequence, deliveryState, result) =>
+    send({
+      type: 'golf-one-game-ack',
+      sessionId: gameSessionId,
+      sequence,
+      state: deliveryState,
+      result,
+    });
+
+  const closeGameSession = async (reason) => {
+    const closingSessionId = gameSessionId;
+    gameSessionId = '';
+    gameSessionOpening = false;
+    inFlightShot = null;
+    if (directRangeRecoveryTimer) {
+      window.clearTimeout(directRangeRecoveryTimer);
+      directRangeRecoveryTimer = 0;
+    }
+    if (closingSessionId) {
+      await send({
+        type: 'golf-one-game-session',
+        state: 'closed',
+        sessionId: closingSessionId,
+      });
+    }
+    if (reason === 'iframe-removed') {
+      setGameState('Open a course');
+    }
+  };
+
+  const pollGameShots = async () => {
+    if (gamePollRunning || !gameSessionId) return;
+    gamePollRunning = true;
+
+    while (gameSessionId) {
+      const sessionAtPollStart = gameSessionId;
+      const response = await send({
+        type: 'golf-one-game-poll',
+        sessionId: sessionAtPollStart,
+        after: gameCursor,
+      });
+      if (!gameSessionId || gameSessionId !== sessionAtPollStart) break;
+      if (!response.ok) {
+        setGameState('Bridge offline', 'error');
+        gameSessionId = '';
+        break;
+      }
+
+      for (const delivery of response.data?.shots || []) {
+        const sequence = delivery?.sequence;
+        const shot = delivery?.payload?.shot;
+        if (!Number.isInteger(sequence) || !shot) continue;
+
+        try {
+          if (directRangeVerification) {
+            window.postMessage({ type: 'shot', shot }, window.location.origin);
+          } else {
+            gameFrame = findGameFrame();
+            if (!gameFrame?.contentWindow) throw new Error('OpenGolfSim game frame closed');
+            const targetOrigin = new URL(gameFrame.src).origin;
+            gameFrame.contentWindow.postMessage({ type: 'shot', shot }, targetOrigin);
+          }
+          gameCursor = sequence;
+          inFlightShot = { sequence, shot };
+          setGameState('Shot in play');
+          const acknowledged = await acknowledgeGameShot(sequence, 'posted');
+          if (!acknowledged.ok) {
+            throw new Error(acknowledged.error || 'Golf One could not confirm delivery');
+          }
+          if (directRangeVerification) {
+            directRangeRecoveryTimer = window.setTimeout(() => {
+              if (inFlightShot?.sequence !== sequence) return;
+              inFlightShot = null;
+              void acknowledgeGameShot(sequence, 'error').then(() => {
+                setGameState('Visual test ready');
+              });
+            }, DIRECT_RANGE_RECOVERY_MS);
+          }
+        } catch (error) {
+          gameCursor = sequence;
+          if (inFlightShot?.sequence === sequence) inFlightShot = null;
+          await acknowledgeGameShot(sequence, 'error');
+          setGameState('Shot not delivered', 'error');
+          message.textContent =
+            error instanceof Error ? error.message : 'Golf One could not deliver the shot.';
+        }
+      }
+    }
+    gamePollRunning = false;
+  };
+
+  const openGameSession = async () => {
+    if (gameSessionOpening) return;
+    gameSessionOpening = true;
+    const response = await send({
+      type: 'golf-one-game-session',
+      state: 'ready',
+      sessionId: gameSessionId || undefined,
+    });
+    gameSessionOpening = false;
+    if (!response.ok) {
+      setGameState('Bridge offline', 'error');
+      return;
+    }
+
+    gameSessionId = response.data.session_id;
+    gameCursor = response.data.cursor ?? gameCursor;
+    setGameState('Game ready');
+    testShot.hidden = false;
+    void pollGameShots();
+  };
+
+  window.addEventListener('message', (event) => {
+    if (directRangeVerification) return;
+    gameFrame = findGameFrame();
+    if (!gameFrame || event.source !== gameFrame.contentWindow) return;
+    if (!event.data || typeof event.data !== 'object') return;
+
+    if (event.data.type === 'ready') {
+      applyOpenGolfSimLayout();
+      setGameState('Loading course');
+      return;
+    }
+    if (event.data.type === 'player') {
+      void openGameSession();
+      return;
+    }
+    if (event.data.type === 'result' && inFlightShot) {
+      if (!shotsMatch(inFlightShot.shot, event.data.shot)) return;
+      const sequence = inFlightShot.sequence;
+      if (directRangeRecoveryTimer) {
+        window.clearTimeout(directRangeRecoveryTimer);
+        directRangeRecoveryTimer = 0;
+      }
+      const result = {
+        ...(event.data.data || {}),
+        ...(typeof event.data.surface === 'string' ? { surface: event.data.surface } : {}),
+      };
+      inFlightShot = null;
+      void acknowledgeGameShot(sequence, 'completed', result).then((response) => {
+        if (response.ok) {
+          const carry = Number(result.carry);
+          setGameState(Number.isFinite(carry) ? `${Math.round(carry)} yd complete` : 'Game ready');
+        }
+      });
+    }
+  });
+
+  const watchForGame = new MutationObserver(() => {
+    const nextFrame = findGameFrame();
+    if (gameFrame && !nextFrame) {
+      restoreOpenGolfSimLayout();
+      layoutSnapshot = null;
+      gameFrame = null;
+      gameControls.hidden = true;
+      testShot.hidden = true;
+      void closeGameSession('iframe-removed');
+      return;
+    }
+    if (!nextFrame) return;
+    if (gameFrame && gameFrame !== nextFrame) {
+      restoreOpenGolfSimLayout();
+      layoutSnapshot = null;
+      void closeGameSession('iframe-replaced');
+    }
+    gameFrame = nextFrame;
+    applyOpenGolfSimLayout();
+  });
+  watchForGame.observe(document.documentElement, { childList: true, subtree: true });
+  applyOpenGolfSimLayout();
+
+  if (directRangeVerification) {
+    const waitForRange = window.setInterval(() => {
+      if (!document.querySelector('canvas')) return;
+      window.clearInterval(waitForRange);
+      window.setTimeout(() => void openGameSession(), 6000);
+    }, 250);
+  }
+
   const renderStatus = (status) => {
     const connectionState = status?.state || 'disconnected';
+    const browserState = status?.browser?.game_state;
+    const completedCarry = Number(status?.browser?.last_delivery?.result?.carry);
     state.dataset.state = connectionState;
     state.textContent =
-      connectionState === 'connected'
-        ? 'Shots connected'
+      status?.browser?.active && browserState === 'ready'
+        ? Number.isFinite(completedCarry)
+          ? `${Math.round(completedCarry)} yd complete`
+          : 'Game ready'
+        : status?.browser?.active && (browserState === 'queued' || browserState === 'in_flight')
+          ? 'Shot in play'
+          : connectionState === 'connected'
+            ? 'Shots connected'
         : connectionState === 'error'
           ? 'Setup needed'
           : connectionState === 'connecting' || connectionState === 'reconnecting'
             ? 'Connecting'
             : status?.configured
               ? 'Offline'
-              : 'Setup needed';
+              : 'Open a course';
     if (status?.email && !email.value) email.value = status.email;
   };
 
@@ -339,6 +617,25 @@
 
   settings.addEventListener('click', () => {
     window.location.assign('http://127.0.0.1:8080/?settings=1');
+  });
+
+  gameControls.addEventListener('click', () => {
+    immersiveLayout = !immersiveLayout;
+    if (immersiveLayout) {
+      applyOpenGolfSimLayout();
+    } else {
+      restoreOpenGolfSimLayout();
+    }
+  });
+
+  testShot.addEventListener('click', async () => {
+    testShot.disabled = true;
+    message.textContent = 'Sending a Golf One test shot…';
+    const response = await send({ type: 'golf-one-game-test-shot' });
+    testShot.disabled = false;
+    message.textContent = response.ok
+      ? 'Test shot measured. Watch the OpenGolfSim ball flight.'
+      : response.error || 'Golf One could not generate a test shot.';
   });
 
   save.addEventListener('click', async () => {
@@ -409,6 +706,11 @@
       exitMessage.textContent = response.error || 'Golf One could not open the desktop.';
       exitPin.focus();
     }
+  });
+
+  window.addEventListener('pagehide', () => {
+    if (!gameSessionId) return;
+    void closeGameSession('pagehide');
   });
 
   refreshStatus();

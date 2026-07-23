@@ -4,6 +4,7 @@ WebSocket server for OpenFlight UI.
 Provides real-time shot data to the web frontend via Flask-SocketIO.
 """
 
+import ipaddress
 import json
 import logging
 import os
@@ -23,7 +24,13 @@ from flask_socketio import SocketIO
 
 from .ballistics import resolve_launch, simulate
 from .launch_monitor import SPIN_CONFIDENCE_HIGH, ClubType, Shot
-from .opengolfsim import OpenGolfSimWebBridge, WebBridgeStatus
+from .opengolfsim import (
+    BrowserShotRelay,
+    InvalidBrowserSession,
+    OpenGolfSimWebBridge,
+    WebBridgeStatus,
+    build_web_shot_payload,
+)
 from .ops243 import Direction, SpeedReading, set_show_raw_readings
 from .rolling_buffer.monitor import estimate_carry_with_spin, get_optimal_spin_for_ball_speed
 from .session_logger import get_session_logger, init_session_logger, log_session_error
@@ -72,6 +79,7 @@ CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 opengolfsim_web_bridge = OpenGolfSimWebBridge()
+opengolfsim_browser_relay = BrowserShotRelay()
 opengolfsim_config_lock = threading.Lock()
 display_config_lock = threading.Lock()
 
@@ -80,6 +88,14 @@ DISPLAY_MODE_URLS = {
     "launch_monitor": "/display",
 }
 DEFAULT_DISPLAY_MODE = "simulator"
+OPENGOLFSIM_WEB_FIELDS = [
+    "ball_speed",
+    "vla",
+    "hla",
+    "total_spin",
+    "spin_axis",
+]
+OPENGOLFSIM_EXTENSION_HEADER = "browser-relay-v1"
 
 # Global state
 monitor = None
@@ -1006,7 +1022,7 @@ def _display_write_origin_allowed() -> bool:
 
 
 def _opengolfsim_status_payload() -> dict:
-    """Translate the backend bridge state into the stable UI/API vocabulary."""
+    """Combine the active local game and legacy cloud bridge status."""
 
     status = opengolfsim_web_bridge.status
     state_map = {
@@ -1015,15 +1031,32 @@ def _opengolfsim_status_payload() -> dict:
         "invalid_user": "error",
     }
     raw_state = status.state.value
+    cloud_state = state_map.get(raw_state, raw_state)
+    browser = opengolfsim_browser_relay.status()
+    if browser["active"]:
+        game_state = browser["game_state"]
+        message = {
+            "ready": "OpenGolfSim game ready for the next shot",
+            "queued": "Sending shot to the OpenGolfSim game",
+            "in_flight": "Shot is playing in OpenGolfSim",
+            "loading": "OpenGolfSim course is loading",
+        }.get(game_state, "OpenGolfSim browser game connected")
+        visible_state = "connected"
+    else:
+        message = status.message
+        visible_state = cloud_state
+
     return {
         "configured": bool(opengolfsim_web_bridge.email),
         "email": opengolfsim_web_bridge.email,
-        "state": state_map.get(raw_state, raw_state),
+        "state": visible_state,
         "raw_state": raw_state,
-        "message": status.message,
+        "cloud_state": cloud_state,
+        "message": message,
         "attempt": status.attempt,
         "next_retry_in_s": status.next_retry_in_s,
         "permanent": status.permanent,
+        "browser": browser,
     }
 
 
@@ -1045,6 +1078,60 @@ def _start_opengolfsim_web_bridge() -> None:
     opengolfsim_web_bridge.set_status_callback(_on_opengolfsim_web_status, replay=False)
     opengolfsim_web_bridge.configure_email(_load_opengolfsim_email())
     opengolfsim_web_bridge.start()
+
+
+def _request_is_loopback() -> bool:
+    """Limit browser-relay controls to Chromium running on this appliance."""
+
+    try:
+        return ipaddress.ip_address(request.remote_addr or "").is_loopback
+    except ValueError:
+        return False
+
+
+def _browser_request_authorized() -> bool:
+    """Trust only the bundled local extension, never an arbitrary web origin."""
+
+    if not _request_is_loopback():
+        return False
+    if request.headers.get("X-Golf-One-Extension") != OPENGOLFSIM_EXTENSION_HEADER:
+        return False
+
+    origin = request.headers.get("Origin")
+    if not origin:
+        # Chromium may omit Origin for a host-permitted extension fetch. A web
+        # page cannot omit it while also sending the required custom header.
+        return True
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
+    return parsed.scheme == "chrome-extension" and bool(parsed.hostname)
+
+
+def _browser_api_data() -> dict:
+    """Return a JSON object for a browser-relay request, or an empty object."""
+
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
+
+
+def _compact_opengolfsim_result(result) -> dict:
+    """Keep only small, user-facing values from FUSE's potentially large result."""
+
+    if not isinstance(result, dict):
+        return {}
+
+    compact = {}
+    for key in ("apex", "lateral", "carry", "total", "roll"):
+        value = result.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            compact[key] = round(float(value), 2)
+
+    surface = result.get("surface")
+    if isinstance(surface, str):
+        compact["surface"] = surface[:80]
+    return compact
 
 
 @app.route("/")
@@ -1099,6 +1186,108 @@ def api_opengolfsim():
     opengolfsim_web_bridge.configure_email(email)
     opengolfsim_web_bridge.start()
     return _opengolfsim_status_payload(), 200
+
+
+@app.route("/api/opengolfsim/browser/session", methods=["POST"])
+def api_opengolfsim_browser_session():
+    """Open, refresh, or close the local OpenGolfSim FUSE session."""
+
+    if not _browser_request_authorized():
+        return {"error": "OpenGolfSim browser controls are local to Golf One."}, 403
+
+    data = _browser_api_data()
+    state = data.get("state")
+    session_id = data.get("session_id")
+    try:
+        if state == "ready" and session_id:
+            session = opengolfsim_browser_relay.mark_ready(session_id)
+        elif state == "ready":
+            session = opengolfsim_browser_relay.open_session()
+        elif state == "closed" and session_id:
+            opengolfsim_browser_relay.close_session(session_id)
+            session = opengolfsim_browser_relay.status()
+        else:
+            return {"error": "Browser session state must be ready or closed."}, 400
+    except InvalidBrowserSession as exc:
+        return {"error": str(exc)}, 409
+
+    socketio.emit("opengolfsim_web_status", _opengolfsim_status_payload())
+    return session, 200
+
+
+@app.route("/api/opengolfsim/browser/poll", methods=["POST"])
+def api_opengolfsim_browser_poll():
+    """Long-poll for a single shot destined for the active FUSE iframe."""
+
+    if not _browser_request_authorized():
+        return {"error": "OpenGolfSim browser controls are local to Golf One."}, 403
+
+    data = _browser_api_data()
+    session_id = data.get("session_id", "")
+    after = data.get("after")
+    try:
+        shots = opengolfsim_browser_relay.poll(
+            session_id=session_id,
+            after=after,
+        )
+    except InvalidBrowserSession as exc:
+        return {"error": str(exc)}, 409
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+
+    return {
+        "shots": shots,
+        **opengolfsim_browser_relay.status(),
+    }, 200
+
+
+@app.route("/api/opengolfsim/browser/ack", methods=["POST"])
+def api_opengolfsim_browser_ack():
+    """Record iframe posting, delivery error, or a completed FUSE result."""
+
+    if not _browser_request_authorized():
+        return {"error": "OpenGolfSim browser controls are local to Golf One."}, 403
+
+    data = _browser_api_data()
+    state = data.get("state")
+    result = _compact_opengolfsim_result(data.get("result")) if state == "completed" else None
+    try:
+        relay_status = opengolfsim_browser_relay.acknowledge(
+            session_id=data.get("session_id", ""),
+            sequence=data.get("sequence"),
+            state=state,
+            result=result,
+        )
+    except InvalidBrowserSession as exc:
+        return {"error": str(exc)}, 409
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+
+    if state == "completed":
+        socketio.emit(
+            "opengolfsim_browser_result",
+            {
+                "sequence": data.get("sequence"),
+                "result": result,
+            },
+        )
+    socketio.emit("opengolfsim_web_status", _opengolfsim_status_payload())
+    return relay_status, 200
+
+
+@app.route("/api/opengolfsim/browser/test-shot", methods=["POST"])
+def api_opengolfsim_browser_test_shot():
+    """Generate a deterministic UI test shot while the appliance is in mock mode."""
+
+    if not _browser_request_authorized():
+        return {"error": "OpenGolfSim browser controls are local to Golf One."}, 403
+    if not monitor or not isinstance(monitor, MockLaunchMonitor):
+        return {"error": "Test shots are only available in Golf One mock mode."}, 409
+    if not opengolfsim_browser_relay.is_active():
+        return {"error": "Open an OpenGolfSim course before sending a test shot."}, 409
+
+    monitor.simulate_shot(ball_speed=142.0)
+    return {"status": "shot_generated"}, 202
 
 
 @app.route("/api/display-mode", methods=["GET", "POST"])
@@ -1788,14 +1977,15 @@ def handle_shutdown():
 def _forward_shot_to_simulators(shot: Shot) -> None:
     """Resolve a shot once and fan it out to every connected simulator.
 
-    The Pi owns the OpenGolfSim Web bridge, so browser navigation and extra
-    dashboards cannot duplicate or interrupt shots. The shared shot counter is
-    only allocated when a TCP connector is connected; Web API shots do not use
-    that counter.
+    A live local FUSE browser session takes priority over the legacy cloud
+    WebSocket so an OpenGolfSim update cannot deliver the same physical shot
+    twice. The shared shot counter is only allocated when a TCP connector is
+    connected; browser and Web API shots do not use that counter.
     """
     connected_connectors = [connector for connector in sim_connectors if connector.is_connected()]
     web_configured = bool(opengolfsim_web_bridge.email)
-    if not connected_connectors and not web_configured:
+    browser_active = opengolfsim_browser_relay.is_active()
+    if not connected_connectors and not web_configured and not browser_active:
         return
 
     resolver_state = (
@@ -1815,15 +2005,48 @@ def _forward_shot_to_simulators(shot: Shot) -> None:
 
     values = resolved.as_values()
 
-    if web_configured:
+    browser_publish = None
+    if browser_active:
+        browser_publish = opengolfsim_browser_relay.publish(build_web_shot_payload(resolved))
+        if browser_publish.accepted:
+            socketio.emit(
+                "sim_shot",
+                {
+                    "target": "opengolfsim-web",
+                    "shot_number": resolved.shot_number,
+                    "fields": OPENGOLFSIM_WEB_FIELDS,
+                    "values": values,
+                    "provenance": resolved.provenance,
+                    "delivery": "browser",
+                    "sequence": browser_publish.sequence,
+                },
+            )
+            socketio.emit("opengolfsim_web_status", _opengolfsim_status_payload())
+        else:
+            socketio.emit(
+                "sim_send_failed",
+                {
+                    "target": "opengolfsim-web",
+                    "reason": browser_publish.reason,
+                },
+            )
+
+    use_cloud_fallback = not browser_active or (
+        browser_publish is not None
+        and not browser_publish.accepted
+        and not opengolfsim_browser_relay.is_active()
+    )
+    if web_configured and use_cloud_fallback:
         if opengolfsim_web_bridge.send_shot(resolved):
             socketio.emit(
                 "sim_shot",
                 {
                     "target": "opengolfsim-web",
                     "shot_number": resolved.shot_number,
+                    "fields": OPENGOLFSIM_WEB_FIELDS,
                     "values": values,
                     "provenance": resolved.provenance,
+                    "delivery": "cloud",
                 },
             )
         else:

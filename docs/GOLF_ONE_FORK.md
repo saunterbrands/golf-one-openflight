@@ -52,9 +52,10 @@ The Raspberry Pi desktop launcher is tracked at
 are under `scripts/setup/plymouth/` and
 `scripts/setup/install-golf-one-plymouth.sh`.
 
-The Pi owns the OpenGolfSim shot WebSocket, while a bundled Chromium extension
-adds Golf One status/setup, a Dashboard shortcut, and the protected exit
-gesture to the full-screen game. The local Golf One UI defaults to its
-OpenGolfSim setup/launch view. See
+The Pi owns a loopback-only OpenGolfSim shot relay, while a bundled Chromium
+extension posts those shots into the active FUSE game and returns completed
+results. The extension also adds Golf One status/setup, a Dashboard shortcut,
+an immersive-layout toggle, and the protected exit gesture to the full-screen
+game. The local Golf One UI defaults to its OpenGolfSim setup/launch view. See
 [`docs/simulator/opengolfsim.md`](simulator/opengolfsim.md) for account and shot
 bridge setup.

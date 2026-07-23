@@ -71,8 +71,8 @@ def open_golf_sim_websocket_url(email: str) -> str:
     return f"{OPENGOLFSIM_WEB_API_BASE}/{quote(email.strip(), safe='')}"
 
 
-def build_web_shot_frame(resolved: ResolvedShot) -> str:
-    """Serialize a resolved shot for OpenGolfSim's Web API.
+def build_web_shot_payload(resolved: ResolvedShot) -> dict:
+    """Build the canonical shot object accepted by OpenGolfSim Web and FUSE.
 
     ``ResolvedShot`` stores speed in mph and spin in rpm, so the payload is
     explicitly imperial.  OpenFlight and the OpenGolfSim Web API use opposite
@@ -83,7 +83,7 @@ def build_web_shot_frame(resolved: ResolvedShot) -> str:
     if spin_axis == 0:
         spin_axis = 0.0
 
-    payload = {
+    return {
         "type": "shot",
         "unit": "imperial",
         "shot": {
@@ -94,7 +94,12 @@ def build_web_shot_frame(resolved: ResolvedShot) -> str:
             "spinAxis": spin_axis,
         },
     }
-    return json.dumps(payload, separators=(",", ":"))
+
+
+def build_web_shot_frame(resolved: ResolvedShot) -> str:
+    """Serialize a resolved shot for OpenGolfSim's legacy WebSocket API."""
+
+    return json.dumps(build_web_shot_payload(resolved), separators=(",", ":"))
 
 
 def _default_websocket_factory(url: str) -> WebSocketConnection:
