@@ -80,15 +80,20 @@ def _codec_for(cfg: "ConnectorConfig") -> Codec:
     """Instantiate the codec for a connector type. Import is local to avoid an
     import cycle (the codec imports sim.types/resolver).
 
-    The OpenConnect V1 codec is shared: GSPro uses it on 921; OpenGolfSim uses it
-    on its Developer API (3111, which speaks OpenConnect), named "opengolfsim" so
-    the UI/logs/config say OpenGolfSim rather than GSPro.
+    GSPro uses OpenConnect V1 on 921. OpenGolfSim uses its own documented native
+    JSON Developer API on 3111.
     """
-    if cfg.type not in ("gspro", "opengolfsim"):
-        raise ValueError(f"unknown simulator connector type: {cfg.type!r}")
-    from openflight.gspro.codec import GSProCodec  # pylint: disable=import-outside-toplevel
+    if cfg.type == "gspro":
+        from openflight.gspro.codec import GSProCodec  # pylint: disable=import-outside-toplevel
 
-    return GSProCodec(device_id=cfg.device_id, units=cfg.units, name=cfg.type)
+        return GSProCodec(device_id=cfg.device_id, units=cfg.units)
+    if cfg.type == "opengolfsim":
+        from openflight.opengolfsim.codec import (  # pylint: disable=import-outside-toplevel
+            OpenGolfSimCodec,
+        )
+
+        return OpenGolfSimCodec(units=cfg.units)
+    raise ValueError(f"unknown simulator connector type: {cfg.type!r}")
 
 
 def build_connector(

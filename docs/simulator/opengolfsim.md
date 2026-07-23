@@ -1,98 +1,145 @@
 # OpenGolfSim
 
-OpenFlight streams shots into [OpenGolfSim](https://opengolfsim.com/) through its
-built-in **Developer API** (TCP **3111**), which speaks the **OpenConnect V1**
-protocol — so the `opengolfsim` connector reuses the same shared codec as GSPro,
-just pointed at OGS and reported as "OpenGolfSim".
+Golf One supports both current OpenGolfSim surfaces:
 
-See the connector architecture in [README.md](README.md). This page covers
-setup specific to OpenGolfSim.
+- **OpenGolfSim Web** runs full-screen on the Raspberry Pi and Waveshare panel.
+  A single Pi-owned WebSocket bridge sends shots independently of the browser.
+- **OpenGolfSim Desktop** on macOS or Windows can receive Golf One shots through
+  its native Developer API on TCP port **3111**.
 
-## Requirements
+OpenGolfSim Desktop is not released for Raspberry Pi/Linux ARM. The Pi therefore
+opens the official experimental WebGL simulator.
 
-- **OpenGolfSim desktop app** with the **Developer API** launch-monitor device
-  selected (it listens on TCP 3111).
-- **Network reachability.** The machine running OpenFlight (e.g. the Raspberry
-  Pi) and the PC running OpenGolfSim must be on the same LAN, and OGS's 3111 must
-  be reachable (mind the host firewall). You need the OpenGolfSim PC's IP.
-- No account/credentials are sent by OpenFlight — the API has no auth.
+## OpenGolfSim Web on the Waveshare
 
-## Setup
+1. Golf One opens `https://app.opengolfsim.com/account/simulator` at boot.
+2. Sign in to OpenGolfSim. The password stays entirely inside OpenGolfSim.
+3. Press the **Golf One** status chip at the lower-left.
+4. Enter the same OpenGolfSim account email and press **Connect shots**.
+5. When the chip reads **Shots connected**, select a range or course.
 
-1. In OpenGolfSim, select the **Developer API** launch-monitor device (port 3111).
-2. **Find the OpenGolfSim PC's IP** (e.g. `192.168.1.60`).
-3. **Configure OpenFlight.** Copy the example config if you haven't already:
-   ```bash
-   cp config/sim.example.json config/sim.json
-   ```
-   Enable the OpenGolfSim connector with the PC's IP:
-   ```jsonc
-   {
-     "connectors": [
-       { "type": "opengolfsim", "enabled": true, "host": "192.168.1.60", "port": 3111 }
-     ]
-   }
-   ```
-4. **Start OpenFlight with simulator connectors on** (`--sim`, off by default):
-   ```bash
-   scripts/start-kiosk.sh --kld7 --sim   # --kld7 only for deprecated K-LD7 angle-radar builds
-   ```
-   The header OpenGolfSim pill should turn **green**.
-5. **Hit a shot.** It appears in OpenGolfSim; with debug mode on, the "Sent to
-   OpenGolfSim" panel shows the values sent with measured/estimated badges.
+The Pi—not the webpage—owns the account-scoped connection:
 
-## What gets sent
-
-OpenConnect V1 ball data (OGS computes carry itself; club/face data isn't sent):
-
-```json
-{ "DeviceID": "OpenFlight", "Units": "Yards", "ShotNumber": 1, "APIversion": "1",
-  "BallData": { "Speed": 135.0, "VLA": 11.1, "HLA": 1.2, "TotalSpin": 4800, "SpinAxis": -2.5, ... } }
+```text
+wss://app.opengolfsim.com/api/YOUR_ACCOUNT_EMAIL
 ```
 
-`TotalSpin` uses the measured value when high-confidence, otherwise a per-club
-model — the "Sent to OpenGolfSim" badges (debug mode) show which.
+This design has three useful properties:
 
-## Club sync (needs a small OGS patch)
+- changing Golf One dashboard tabs cannot disconnect the round;
+- opening a dashboard on a phone cannot duplicate a physical shot;
+- a network outage never replays an old shot after reconnecting.
 
-OGS's Developer API already replies with an OpenConnect `201 Player` block, but
-ships with a hardcoded `Club:"DR"` — the real club reaches the bundled driver
-via `setClub(clubId)` but isn't wired into the reply (confirmed against OGS's own
-source). A small local patch finishes it:
+The account email is stored at
+`~/.config/golf-one/opengolfsim.json` with user-only permissions. No password is
+stored by Golf One.
 
-1. Apply **`scripts/setup/opengolfsim/`** (this repo) to your local OGS — it
-   makes the Developer API send the *real* club in the `201`. See that folder's
-   `README.md` for `apply.sh` and the re-apply-after-update note.
-2. Relaunch OGS (with the Developer API device selected).
+The Golf One browser extension supplies the lower-left connection control,
+Dashboard shortcut, and the protected kiosk exit on every OpenGolfSim page. Tap
+the top-right corner 10 times within three seconds, enter `0000`, then press
+Enter to return to the Raspberry Pi desktop.
 
-With the patch, changing the club in OpenGolfSim pushes a `201 Player` that
-OpenFlight applies to its club picker and carry/spin model. Without it, shots
-still stream fine — you just set the club manually in OpenFlight.
+## Dashboard controls
 
-> Club sync is **one-way: OGS → OpenFlight.** OGS's API has no command for a
-> device to set the club, so OpenFlight can't push its club choice to the sim;
-> the sim is the source of truth. The durable fix is upstreaming the ~3-line
-> Developer-API change to OGS so no local patch is needed.
+From the full-screen simulator, press the lower-left **Golf One** chip and then
+**Dashboard**. The dashboard's Simulator tab can:
+
+- configure or update the OpenGolfSim account email;
+- display the Pi bridge's actual connection/error state;
+- send an explicit mock test shot;
+- relaunch OpenGolfSim full-screen.
+
+An invalid account is shown as a permanent setup error instead of reconnecting
+forever. Correct the email to retry.
+
+## OpenGolfSim Desktop
+
+Requirements:
+
+- OpenGolfSim Desktop running on a Mac or Windows PC;
+- **Developer API** selected as the launch monitor;
+- the Pi and desktop computer on the same LAN with TCP port 3111 reachable.
+
+Configure `config/sim.json`:
+
+```json
+{
+  "connectors": [
+    {
+      "type": "opengolfsim",
+      "enabled": true,
+      "host": "192.168.1.60",
+      "port": 3111,
+      "units": "imperial"
+    }
+  ]
+}
+```
+
+Then launch Golf One with TCP simulator connectors enabled:
+
+```bash
+scripts/start-kiosk.sh --sim
+```
+
+The connector retries if OpenGolfSim Desktop is not running yet.
+
+## Native shot format
+
+OpenGolfSim's current APIs accept native JSON rather than a GSPro/OpenConnect
+envelope. Golf One announces the launch monitor at connection time:
+
+```json
+{"type":"device","status":"ready"}
+```
+
+It then sends:
+
+```json
+{
+  "type": "shot",
+  "unit": "imperial",
+  "shot": {
+    "ballSpeed": 135.0,
+    "verticalLaunchAngle": 11.1,
+    "horizontalLaunchAngle": 1.2,
+    "spinSpeed": 4800,
+    "spinAxis": 2.5
+  }
+}
+```
+
+The Desktop TCP API receives newline-delimited JSON. Metric TCP mode converts
+mph to metres per second. Golf One also reverses spin-axis sign at the
+OpenGolfSim boundary because the two systems define positive curvature in
+opposite directions.
+
+Measured values are preferred. Missing launch/spin fields use the same
+club-aware fallback model for Web and Desktop.
+
+## Course building
+
+Course creation is a separate desktop authoring workflow; it does not run on the
+Pi and is not required to connect Golf One. OpenGolfSim currently documents a
+Unity project template plus terrain and mesh tools:
+
+- [Course-building guide](https://help.opengolfsim.com/course-building/)
+- [Getting started](https://help.opengolfsim.com/course-building/getting-started/)
 
 ## Troubleshooting
 
-- **Pill stays amber (connecting / reconnecting):** OpenFlight can't reach
-  `host:port`. Verify the Developer API device is selected in OGS, the IP is
-  correct, 3111 isn't firewalled, and you launched with `--sim`. ("Connecting"
-  means it has never connected yet; "reconnecting" means an established
-  connection dropped.)
-- **Shots don't appear:** confirm OGS is on a hittable screen with the Developer
-  API connected. Check `sim_send` entries in the session log.
-- **First shot after connecting sometimes doesn't register:** the first shot on a
-  fresh connection occasionally doesn't play in OGS while later shots do. This
-  appears to depend on OpenGolfSim's screen/round state (it must be on a hittable
-  screen), not on OpenFlight — OpenFlight sends the shot correctly (confirm the
-  `sim_send` entry in the session log; OGS replies, e.g. `Code 200 "Club Data
-  received"`). Workaround: make sure OGS is on a hittable screen before you start,
-  and/or hit a throwaway first shot.
-- **Club shows "DR" / doesn't follow OGS:** the club-sync patch isn't applied (or
-  an OGS update reverted it) — re-run `scripts/setup/opengolfsim/apply.sh`.
+- **OpenGolfSim shows Log In:** sign in or create an OpenGolfSim account.
+- **Setup needed / Invalid User:** the Golf One email must exactly match the
+  OpenGolfSim account.
+- **Connecting:** verify the Pi has internet access.
+- **Desktop status stays offline:** verify the PC/Mac IP, select Developer API
+  in OpenGolfSim Desktop, and allow TCP 3111 through its firewall.
+- **Shot does not play:** OpenGolfSim must be on a hittable range/course screen.
+- **Shot is lost while offline:** this is intentional; stale golf shots are not
+  queued or replayed.
 
-## References
+## Official references
 
-- [OpenGolfSim Developer API](https://help.opengolfsim.com/desktop/apis/)
+- [OpenGolfSim Web Simulator](https://help.opengolfsim.com/web/webgl/)
+- [Developer API](https://help.opengolfsim.com/desktop/apis/)
+- [Shot Data API](https://help.opengolfsim.com/desktop/apis/shot-data/)

@@ -1,0 +1,268 @@
+.kiosk-exit-hotspot {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 2500;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: 0 0 0 var(--radius-md);
+  background: transparent;
+  color: var(--color-gold);
+  opacity: 0;
+  cursor: default;
+}
+
+.kiosk-exit-hotspot:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--color-gold);
+  outline-offset: -5px;
+  background: rgba(7, 18, 14, 0.94);
+}
+
+.kiosk-exit-hotspot__keyboard-label {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.kiosk-exit {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: radial-gradient(circle at 50% 35%, rgba(146, 213, 71, 0.15), transparent 32rem), rgba(2, 8, 6, 0.92);
+  backdrop-filter: blur(12px);
+  animation: kiosk-exit-fade-in 160ms ease-out;
+}
+
+.kiosk-exit__dialog {
+  position: relative;
+  width: min(430px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: clamp(1.5rem, 5vw, 2.25rem);
+  border: 1px solid rgba(146, 213, 71, 0.26);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(155deg, rgba(23, 58, 48, 0.98), rgba(7, 18, 14, 0.99)), var(--color-bg-elevated);
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(146, 213, 71, 0.06),
+    0 0 48px rgba(146, 213, 71, 0.1);
+  text-align: center;
+  animation: kiosk-exit-rise-in 220ms var(--transition-spring);
+}
+
+.kiosk-exit__dialog .golfone-logo {
+  width: min(220px, 68%);
+  height: auto;
+  margin: 0 auto var(--space-md);
+}
+
+.kiosk-exit__close {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  place-items: center;
+  border: 1px solid rgba(243, 243, 243, 0.1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.kiosk-exit__close:hover,
+.kiosk-exit__close:active {
+  border-color: rgba(146, 213, 71, 0.35);
+  background: rgba(146, 213, 71, 0.1);
+  color: var(--color-gold);
+}
+
+.kiosk-exit__close svg {
+  width: 22px;
+  height: 22px;
+}
+
+.kiosk-exit__eyebrow {
+  display: inline-flex;
+  margin: 0 0 var(--space-sm);
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(146, 213, 71, 0.26);
+  border-radius: 999px;
+  background: rgba(146, 213, 71, 0.08);
+  color: var(--color-gold);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.kiosk-exit__dialog h2 {
+  margin: 0;
+  color: var(--color-cream);
+  font-size: clamp(1.65rem, 5vw, 2.1rem);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+}
+
+.kiosk-exit__dialog > p:last-of-type {
+  max-width: 310px;
+  margin: var(--space-sm) auto var(--space-lg);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.kiosk-exit__form {
+  text-align: left;
+}
+
+.kiosk-exit__form label {
+  display: block;
+  margin-bottom: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.kiosk-exit__pin {
+  width: 100%;
+  height: 68px;
+  border: 2px solid rgba(243, 243, 243, 0.14);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--color-cream);
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: 0.55em;
+  text-align: center;
+  caret-color: var(--color-gold);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.kiosk-exit__pin:focus {
+  border-color: var(--color-gold);
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(146, 213, 71, 0.12);
+}
+
+.kiosk-exit__pin--error {
+  border-color: var(--color-danger);
+  animation: kiosk-exit-shake 240ms ease-in-out;
+}
+
+.kiosk-exit__message {
+  min-height: 2.15rem;
+  padding-top: var(--space-sm);
+}
+
+.kiosk-exit__message p {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.8125rem;
+}
+
+.kiosk-exit__actions {
+  display: grid;
+  grid-template-columns: 0.85fr 1.4fr;
+  gap: var(--space-sm);
+}
+
+.kiosk-exit__button {
+  min-height: 50px;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  letter-spacing: 0.025em;
+  cursor: pointer;
+}
+
+.kiosk-exit__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.kiosk-exit__button--secondary {
+  border: 1px solid rgba(243, 243, 243, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
+.kiosk-exit__button--primary {
+  border: 1px solid var(--color-gold);
+  background: linear-gradient(135deg, var(--color-gold-dim), var(--color-gold));
+  color: var(--color-bg-deep);
+  box-shadow: 0 6px 18px rgba(146, 213, 71, 0.22);
+}
+
+.kiosk-exit__button--primary:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: 0 3px 10px rgba(146, 213, 71, 0.18);
+}
+
+@keyframes kiosk-exit-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes kiosk-exit-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+}
+
+@keyframes kiosk-exit-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  33% {
+    transform: translateX(-5px);
+  }
+  66% {
+    transform: translateX(5px);
+  }
+}
+
+@media (max-height: 500px) {
+  .kiosk-exit {
+    align-items: flex-start;
+    padding: var(--space-sm);
+  }
+
+  .kiosk-exit__dialog {
+    width: min(650px, 100%);
+    padding: var(--space-md) var(--space-xl);
+  }
+
+  .kiosk-exit__dialog .golfone-logo {
+    width: 155px;
+    margin-bottom: var(--space-xs);
+  }
+
+  .kiosk-exit__dialog > p:last-of-type {
+    margin-bottom: var(--space-sm);
+  }
+
+  .kiosk-exit__pin {
+    height: 54px;
+    font-size: 1.5rem;
+  }
+
+  .kiosk-exit__message {
+    min-height: 1.8rem;
+    padding-top: var(--space-xs);
+  }
+}

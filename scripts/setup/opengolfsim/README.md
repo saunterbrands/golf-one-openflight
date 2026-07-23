@@ -12,8 +12,9 @@ We originally tried a user-installed OpenConnect plugin on port 921, but
 launch monitor is a bundled module in `lib/launch/*.js`. Investigation of those
 modules showed:
 
-- The **Developer API** (`api.js`, 3111) already speaks OpenConnect V1 / GSPro
-  format (it handles `BallData` / `ShotDataOptions` / heartbeats).
+- The **Developer API** (`api.js`, 3111) accepts OpenGolfSim's native
+  `type=device` / `type=shot` JSON and retains compatibility with OpenConnect
+  V1 / GSPro payloads.
 - It already sends a `201 Player` block back — but with **`Club: "DR"`
   hardcoded**, and the real club (delivered to every driver via
   `base.js#setClub(clubId)`) is only logged, never sent.
@@ -59,7 +60,7 @@ future OGS release changes `api.js` enough that the patch doesn't apply cleanly.
 Point the connector at the Developer API:
 
 ```json
-{ "connectors": [ { "type": "opengolfsim", "transport": "openconnect", "enabled": true, "host": "127.0.0.1", "port": 3111 } ] }
+{ "connectors": [ { "type": "opengolfsim", "enabled": true, "host": "127.0.0.1", "port": 3111, "units": "imperial" } ] }
 ```
 
 Then in OGS select the **Developer API** device. Shots stream in; changing the

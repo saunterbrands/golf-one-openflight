@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Golf One Simulator
+Comment=Launch or recover the Golf One launch monitor and OpenGolfSim view
+Exec=/home/openflight/golf-one-openflight/scripts/launch-golf-one.sh --mock --sim
+Icon=/home/openflight/golf-one-openflight/ui/public/golfone-icon.svg
+Terminal=false
+Type=Application
+Categories=Game;Sports;
+StartupNotify=true

@@ -4,8 +4,7 @@ A single file lists every connector; the server streams to all that are
 ``enabled`` — but only when the sim feature is turned on at launch (``--sim``).
 
 A connector's ``type`` is the *product*: gspro (OpenConnect V1 on 921) or
-opengolfsim (reached via its Developer API on 3111, which speaks OpenConnect).
-Both ride the shared OpenConnect codec; they differ only in name + default port.
+opengolfsim (reached via its native JSON Developer API on 3111).
 """
 
 import json
@@ -30,8 +29,8 @@ _DEFAULTS: Dict[str, dict] = {
     },
     "opengolfsim": {
         "port": 3111,
-        "units": "Yards",
-        "device_id": "OpenFlight",
+        "units": "imperial",
+        "device_id": "Golf One",
         "heartbeat_interval_s": 5.0,
     },
 }

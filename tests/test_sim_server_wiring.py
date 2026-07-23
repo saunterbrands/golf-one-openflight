@@ -3,12 +3,53 @@
 Exercises server._forward_shot_to_simulators and server._sim_on_inbound with
 fake connectors so no sockets or hardware are needed.
 """
+
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
 from openflight.launch_monitor import ClubType, Shot
 from openflight.sim.types import ConnectionState, PlayerUpdate, ShotAck, SimError
+
+
+class _FakeWebBridge:
+    def __init__(self):
+        self.email = ""
+        self.sent = []
+        self.send_result = True
+        self.started = False
+        self.status = SimpleNamespace(
+            state=SimpleNamespace(value="unconfigured"),
+            message="Enter the OpenGolfSim account email to connect",
+            attempt=0,
+            next_retry_in_s=0.0,
+            permanent=False,
+        )
+
+    def configure_email(self, email):
+        self.email = email
+        self.status = SimpleNamespace(
+            state=SimpleNamespace(value="connecting" if email else "unconfigured"),
+            message="Connecting to OpenGolfSim" if email else "Enter the account email",
+            attempt=1 if email else 0,
+            next_retry_in_s=0.0,
+            permanent=False,
+        )
+
+    def set_status_callback(self, _callback, replay=True):
+        del replay
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.started = False
+
+    def send_shot(self, resolved):
+        if self.send_result:
+            self.sent.append(resolved)
+        return self.send_result
 
 
 @pytest.fixture
@@ -23,6 +64,9 @@ def server(monkeypatch):
     # Reset shared state between tests
     srv.sim_connectors = []
     srv.sim_player_state = srv.SimPlayerState()
+    fake_web_bridge = _FakeWebBridge()
+    monkeypatch.setattr(srv, "opengolfsim_web_bridge", fake_web_bridge)
+    srv._fake_web_bridge = fake_web_bridge
     yield srv
     # Don't leak fake connectors / player state into other test modules
     # (server.on_shot_detected reads these globals).
@@ -48,8 +92,12 @@ class _FakeConnector:
 
 
 def _shot():
-    return Shot(ball_speed_mph=140.0, timestamp=datetime(2026, 6, 13, 12, 0, 0),
-                club=ClubType.DRIVER, launch_angle_vertical=12.0)
+    return Shot(
+        ball_speed_mph=140.0,
+        timestamp=datetime(2026, 6, 13, 12, 0, 0),
+        club=ClubType.DRIVER,
+        launch_angle_vertical=12.0,
+    )
 
 
 def test_forward_fans_out_to_connected_only(server):
@@ -85,10 +133,65 @@ def test_forward_noop_when_no_connector_connected(server):
     assert not any(a_[0] == "sim_shot" for a_, k in server._emitted)
 
 
+def test_forward_sends_one_shot_through_device_owned_web_bridge(server):
+    server._fake_web_bridge.configure_email("golfer@example.com")
+
+    server._forward_shot_to_simulators(_shot())
+
+    assert len(server._fake_web_bridge.sent) == 1
+    assert server._fake_web_bridge.sent[0].ball_speed_mph == 140.0
+    assert server.sim_player_state.shot_counter == 0
+    web_shots = [
+        args
+        for args, _kwargs in server._emitted
+        if args[0] == "sim_shot" and args[1]["target"] == "opengolfsim-web"
+    ]
+    assert len(web_shots) == 1
+
+
+def test_forward_reports_web_shot_lost_while_bridge_disconnected(server):
+    server._fake_web_bridge.configure_email("golfer@example.com")
+    server._fake_web_bridge.send_result = False
+
+    server._forward_shot_to_simulators(_shot())
+
+    failed = [
+        args
+        for args, _kwargs in server._emitted
+        if args[0] == "sim_send_failed" and args[1]["target"] == "opengolfsim-web"
+    ]
+    assert len(failed) == 1
+
+
+def test_opengolfsim_api_saves_account_and_starts_bridge(server, monkeypatch, tmp_path):
+    config_path = tmp_path / "golf-one" / "opengolfsim.json"
+    monkeypatch.setenv("GOLF_ONE_OPENGOLFSIM_CONFIG", str(config_path))
+    client = server.app.test_client()
+
+    initial = client.get("/api/opengolfsim")
+    assert initial.status_code == 200
+    assert initial.get_json()["configured"] is False
+
+    response = client.post("/api/opengolfsim", json={"email": " golfer@example.com "})
+    assert response.status_code == 200
+    assert response.get_json()["configured"] is True
+    assert response.get_json()["email"] == "golfer@example.com"
+    assert server._fake_web_bridge.email == "golfer@example.com"
+    assert server._fake_web_bridge.started
+    assert config_path.read_text(encoding="utf-8") == '{\n  "email": "golfer@example.com"\n}\n'
+    assert config_path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("email", ["", "not-an-email", "two@@example.com", "space @example.com"])
+def test_opengolfsim_api_rejects_invalid_account(server, email):
+    response = server.app.test_client().post("/api/opengolfsim", json={"email": email})
+    assert response.status_code == 400
+    assert not server._fake_web_bridge.started
+
+
 def test_forward_drops_shot_without_ball_speed(server):
     server.sim_connectors = [_FakeConnector("gspro")]
-    bad = Shot(ball_speed_mph=0.0, timestamp=datetime(2026, 6, 13, 12, 0, 0),
-               club=ClubType.DRIVER)
+    bad = Shot(ball_speed_mph=0.0, timestamp=datetime(2026, 6, 13, 12, 0, 0), club=ClubType.DRIVER)
     server._forward_shot_to_simulators(bad)
     dropped = [a_ for a_, k in server._emitted if a_[0] == "sim_shot_dropped"]
     assert len(dropped) == 1
@@ -110,8 +213,9 @@ def test_inbound_player_update_sets_state_and_monitor(server, monkeypatch):
 
 def test_inbound_error_emits_status(server):
     server._sim_on_inbound("opengolfsim", SimError(message="boom"))
-    errs = [a_ for a_, k in server._emitted
-            if a_[0] == "sim_status" and a_[1].get("state") == "error"]
+    errs = [
+        a_ for a_, k in server._emitted if a_[0] == "sim_status" and a_[1].get("state") == "error"
+    ]
     assert errs and errs[0][1]["message"] == "boom"
 
 
@@ -147,8 +251,9 @@ def test_status_connected_logged_always(server, caplog):
     with caplog.at_level("INFO", logger="openflight.server"):
         server._sim_on_status(
             "gspro",
-            StatusEvent(state=ConnectionState.CONNECTED, target="gspro",
-                        host="127.0.0.1", port=921),
+            StatusEvent(
+                state=ConnectionState.CONNECTED, target="gspro", host="127.0.0.1", port=921
+            ),
         )
     assert "gspro connected" in caplog.text
 
@@ -166,9 +271,7 @@ def test_emit_sim_snapshot_sends_status_for_every_connector(server):
 
     server._emit_sim_snapshot()
 
-    by_target = {
-        a_[1]["target"]: a_[1] for a_, _k in server._emitted if a_[0] == "sim_status"
-    }
+    by_target = {a_[1]["target"]: a_[1] for a_, _k in server._emitted if a_[0] == "sim_status"}
     assert set(by_target) == {"gspro", "opengolfsim"}
     assert by_target["gspro"]["state"] == "connected"
     assert by_target["opengolfsim"]["state"] == "reconnecting"

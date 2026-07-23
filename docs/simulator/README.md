@@ -23,17 +23,15 @@ simulator. For setting up a specific simulator, see its page above.
    ```jsonc
    {
      "connectors": [
-       // OpenGolfSim via its Developer API on 3111 (speaks OpenConnect V1).
-       // Club sync needs the scripts/setup/opengolfsim patch; see opengolfsim.md.
-       { "type": "opengolfsim", "enabled": true, "host": "127.0.0.1", "port": 3111 },
+       // OpenGolfSim's native JSON Developer API on 3111.
+       { "type": "opengolfsim", "enabled": true, "host": "127.0.0.1", "port": 3111, "units": "imperial" },
        // GSPro
        { "type": "gspro", "enabled": false, "host": "192.168.1.50", "port": 921 }
      ]
    }
    ```
-   A connector's `type` is the *product*. Both ride the shared OpenConnect V1
-   codec — they differ only in name and default port (GSPro 921, OpenGolfSim's
-   Developer API 3111).
+   A connector's `type` is the *product*. GSPro uses OpenConnect V1; current
+   OpenGolfSim uses its own native `type=shot` JSON shape.
 2. **Enable the feature at launch with `--sim`** (off by default). Connectors
    marked `enabled` in the file then come up:
    ```bash
@@ -56,13 +54,14 @@ OPS243 + K-LD7  ──►  shot pipeline  ──►  on_shot_detected()
                                        resolve_shot(shot)            ← sim/resolver.py
                                               │  ResolvedShot + provenance
                                               ▼
-                              ┌───────────────┼───────────────┐
-                              ▼               ▼               ▼
-                  OpenConnect V1 codec (gspro/codec.py)    (future)   ← per-sim codec
-                              │               │
-                        TcpSimClient    TcpSimClient                   ← sim/transport.py
-                              ▼               ▼
-                          GSPro :921     OpenGolfSim :3111
+                        ┌─────────────────────┼─────────────────────┐
+                        ▼                     ▼                     ▼
+              GSPro OpenConnect     OpenGolfSim native TCP   OpenGolfSim Web
+               (gspro/codec.py)    (opengolfsim/codec.py)   (web_bridge.py)
+                        │                     │                     │
+                  TcpSimClient           TcpSimClient        one Pi-owned WS
+                        ▼                     ▼                     ▼
+                    GSPro :921        OpenGolfSim :3111      OpenGolfSim WebGL
 ```
 
 The design separates the parts that are **shared across all simulators** from

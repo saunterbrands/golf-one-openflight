@@ -33,3 +33,28 @@ cd ui && npm ci && npm run build
 
 Then restart the kiosk. OpenFlight's GNU AGPLv3 license remains in place and
 applies to this fork.
+
+## Raspberry Pi product startup
+
+Golf One's appliance entry point is:
+
+```bash
+scripts/launch-golf-one.sh
+```
+
+It opens the full stack in mock/simulator mode by default, then launches the
+official OpenGolfSim Web app full-screen. If the server is already healthy and
+only Chromium was closed, it reopens the persistent kiosk profile instead of
+starting a duplicate server.
+
+The Raspberry Pi desktop launcher is tracked at
+`scripts/setup/GolfOne.desktop`. The custom Plymouth boot theme and installer
+are under `scripts/setup/plymouth/` and
+`scripts/setup/install-golf-one-plymouth.sh`.
+
+The Pi owns the OpenGolfSim shot WebSocket, while a bundled Chromium extension
+adds Golf One status/setup, a Dashboard shortcut, and the protected exit
+gesture to the full-screen game. The local Golf One UI defaults to its
+OpenGolfSim setup/launch view. See
+[`docs/simulator/opengolfsim.md`](simulator/opengolfsim.md) for account and shot
+bridge setup.

@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Golf One
+Description=Golf One appliance boot screen for the Waveshare 12.3-inch display
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/golf-one
+ScriptFile=/usr/share/plymouth/themes/golf-one/golf-one.script

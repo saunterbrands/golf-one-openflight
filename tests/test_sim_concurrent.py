@@ -1,8 +1,9 @@
 """Integration: two connectors (GSPro + OpenGolfSim) running concurrently.
 
-Both ride the shared OpenConnect V1 codec; they differ only in target/name. The
-shot must reach each connector's own endpoint independently.
+GSPro uses OpenConnect V1 while OpenGolfSim uses its native newline-delimited
+JSON API. The shot must reach each connector's own endpoint independently.
 """
+
 import json
 import sys
 import threading
@@ -29,15 +30,15 @@ def _wait(connector, state, deadline=3.0):
 
 
 def _frames(received_chunks):
-    """Concatenate received bytes and split into individual JSON objects."""
-    buf = b"".join(received_chunks)
+    """Split adjacent or whitespace-delimited JSON objects from TCP chunks."""
+    buf = b"".join(received_chunks).lstrip()
     out = []
     while True:
         end = find_json_end(buf)
         if end is None:
             break
         out.append(json.loads(buf[:end]))
-        buf = buf[end:]
+        buf = buf[end:].lstrip()
     return out
 
 
@@ -46,10 +47,8 @@ def test_shot_reaches_both_sims():
     ogs_srv = MockSimServer()
     try:
         cfgs = [
-            ConnectorConfig(type="gspro", enabled=True, host=gspro_srv.host,
-                            port=gspro_srv.port),
-            ConnectorConfig(type="opengolfsim", enabled=True, host=ogs_srv.host,
-                            port=ogs_srv.port),
+            ConnectorConfig(type="gspro", enabled=True, host=gspro_srv.host, port=gspro_srv.port),
+            ConnectorConfig(type="opengolfsim", enabled=True, host=ogs_srv.host, port=ogs_srv.port),
         ]
         connectors = build_connectors(cfgs)
         assert {c.name for c in connectors} == {"gspro", "opengolfsim"}
@@ -58,9 +57,13 @@ def test_shot_reaches_both_sims():
         try:
             assert all(_wait(c, ConnectionState.CONNECTED) for c in connectors)
 
-            shot = Shot(ball_speed_mph=135.0, timestamp=datetime(2026, 6, 13, 12, 0, 0),
-                        club=ClubType.DRIVER, launch_angle_vertical=11.1,
-                        launch_angle_horizontal=1.2)
+            shot = Shot(
+                ball_speed_mph=135.0,
+                timestamp=datetime(2026, 6, 13, 12, 0, 0),
+                club=ClubType.DRIVER,
+                launch_angle_vertical=11.1,
+                launch_angle_horizontal=1.2,
+            )
             resolved = resolve_shot(shot, PlayerState())
             for c in connectors:
                 c.send_shot(resolved)
@@ -69,11 +72,17 @@ def test_shot_reaches_both_sims():
             while time.time() < deadline and not (gspro_srv.received and ogs_srv.received):
                 time.sleep(0.05)
 
-            # Both speak OpenConnect V1 — each endpoint gets the BallData shot.
-            for srv in (gspro_srv, ogs_srv):
-                shot_msg = next(m for m in _frames(srv.received) if "BallData" in m)
-                assert shot_msg["BallData"]["Speed"] == 135.0
-                assert shot_msg["APIversion"] == "1"
+            gspro_shot = next(m for m in _frames(gspro_srv.received) if "BallData" in m)
+            assert gspro_shot["BallData"]["Speed"] == 135.0
+            assert gspro_shot["APIversion"] == "1"
+
+            ogs_wire = b"".join(ogs_srv.received)
+            assert ogs_wire.endswith(b"\n")
+            ogs_frames = [json.loads(line) for line in ogs_wire.splitlines() if line]
+            assert {"type": "device", "status": "ready"} in ogs_frames
+            ogs_shot = next(m for m in ogs_frames if m.get("type") == "shot")
+            assert ogs_shot["shot"]["ballSpeed"] == 135.0
+            assert ogs_shot["shot"]["verticalLaunchAngle"] == 11.1
         finally:
             for c in connectors:
                 c.stop()

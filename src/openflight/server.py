@@ -16,12 +16,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from flask import Flask, Response, send_from_directory
+from flask import Flask, Response, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
 
 from .ballistics import resolve_launch, simulate
 from .launch_monitor import SPIN_CONFIDENCE_HIGH, ClubType, Shot
+from .opengolfsim import OpenGolfSimWebBridge, WebBridgeStatus
 from .ops243 import Direction, SpeedReading, set_show_raw_readings
 from .rolling_buffer.monitor import estimate_carry_with_spin, get_optimal_spin_for_ball_speed
 from .session_logger import get_session_logger, init_session_logger, log_session_error
@@ -68,6 +69,9 @@ except ImportError:
 app = Flask(__name__, static_folder=str(FRONTEND_DIST_DIR), static_url_path="")
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+
+opengolfsim_web_bridge = OpenGolfSimWebBridge()
+opengolfsim_config_lock = threading.Lock()
 
 # Global state
 monitor = None
@@ -161,6 +165,7 @@ def _cleanup_hardware_for_shutdown() -> None:
 
     for connector in sim_connectors:
         _run_shutdown_step(f"simulator connector stop ({connector.name})", connector.stop)
+    _run_shutdown_step("OpenGolfSim Web bridge stop", opengolfsim_web_bridge.stop)
 
 
 def _shutdown_process_after_delay(delay_s: float = 0.5) -> None:
@@ -888,6 +893,89 @@ def shot_to_dict(shot: Shot) -> dict:
     }
 
 
+def _opengolfsim_config_path() -> Path:
+    """Return the appliance-local OpenGolfSim settings path."""
+
+    override = os.environ.get("GOLF_ONE_OPENGOLFSIM_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".config" / "golf-one" / "opengolfsim.json"
+
+
+def _load_opengolfsim_email() -> str:
+    """Load the saved OpenGolfSim account email, degrading safely if corrupt."""
+
+    config_path = _opengolfsim_config_path()
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return ""
+    except (OSError, json.JSONDecodeError, TypeError) as exc:
+        logger.warning("[opengolfsim-web] ignoring unreadable %s: %s", config_path, exc)
+        return ""
+
+    email = data.get("email", "") if isinstance(data, dict) else ""
+    return email.strip() if isinstance(email, str) else ""
+
+
+def _save_opengolfsim_email(email: str) -> None:
+    """Atomically save the account identifier with user-only permissions."""
+
+    config_path = _opengolfsim_config_path()
+    config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary_path = config_path.with_name(f".{config_path.name}.tmp")
+
+    with opengolfsim_config_lock:
+        temporary_path.write_text(
+            json.dumps({"email": email}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary_path.chmod(0o600)
+        os.replace(temporary_path, config_path)
+
+
+def _opengolfsim_status_payload() -> dict:
+    """Translate the backend bridge state into the stable UI/API vocabulary."""
+
+    status = opengolfsim_web_bridge.status
+    state_map = {
+        "stopped": "disconnected",
+        "unconfigured": "disabled",
+        "invalid_user": "error",
+    }
+    raw_state = status.state.value
+    return {
+        "configured": bool(opengolfsim_web_bridge.email),
+        "email": opengolfsim_web_bridge.email,
+        "state": state_map.get(raw_state, raw_state),
+        "raw_state": raw_state,
+        "message": status.message,
+        "attempt": status.attempt,
+        "next_retry_in_s": status.next_retry_in_s,
+        "permanent": status.permanent,
+    }
+
+
+def _on_opengolfsim_web_status(status: WebBridgeStatus) -> None:
+    """Publish bridge state changes for local dashboards and diagnostics."""
+
+    payload = _opengolfsim_status_payload()
+    logger.info(
+        "[opengolfsim-web] %s%s",
+        status.state.value,
+        f": {status.message}" if status.message else "",
+    )
+    socketio.emit("opengolfsim_web_status", payload)
+
+
+def _start_opengolfsim_web_bridge() -> None:
+    """Load appliance settings and start the one device-owned Web connection."""
+
+    opengolfsim_web_bridge.set_status_callback(_on_opengolfsim_web_status, replay=False)
+    opengolfsim_web_bridge.configure_email(_load_opengolfsim_email())
+    opengolfsim_web_bridge.start()
+
+
 @app.route("/")
 def index():
     """Serve the React app."""
@@ -912,6 +1000,34 @@ def api_shutdown():
     logger.info("[SERVER] Shutdown requested via REST API")
     threading.Thread(target=_shutdown_process_after_delay, daemon=True).start()
     return {"status": "shutting_down"}, 200
+
+
+@app.route("/api/opengolfsim", methods=["GET", "POST"])
+def api_opengolfsim():
+    """Read or update the Pi-owned OpenGolfSim Web shot bridge."""
+
+    if request.method == "GET":
+        return _opengolfsim_status_payload(), 200
+
+    data = request.get_json(silent=True)
+    email = data.get("email", "").strip() if isinstance(data, dict) else ""
+    if (
+        not email
+        or len(email) > 254
+        or email.count("@") != 1
+        or any(character.isspace() for character in email)
+    ):
+        return {"error": "Enter a valid OpenGolfSim account email."}, 400
+
+    try:
+        _save_opengolfsim_email(email)
+    except OSError as exc:
+        logger.error("[opengolfsim-web] failed to save account: %s", exc, exc_info=True)
+        return {"error": "Golf One could not save the OpenGolfSim account."}, 500
+
+    opengolfsim_web_bridge.configure_email(email)
+    opengolfsim_web_bridge.start()
+    return _opengolfsim_status_payload(), 200
 
 
 # Camera functions
@@ -1577,23 +1693,55 @@ def handle_shutdown():
 def _forward_shot_to_simulators(shot: Shot) -> None:
     """Resolve a shot once and fan it out to every connected simulator.
 
-    The shot pipeline is untouched: this is called after the UI emit and never
-    raises into it. A shot number is only allocated when at least one connector
-    is connected, so the sequence doesn't drift while sims are offline.
+    The Pi owns the OpenGolfSim Web bridge, so browser navigation and extra
+    dashboards cannot duplicate or interrupt shots. The shared shot counter is
+    only allocated when a TCP connector is connected; Web API shots do not use
+    that counter.
     """
-    if not any(c.is_connected() for c in sim_connectors):
+    connected_connectors = [connector for connector in sim_connectors if connector.is_connected()]
+    web_configured = bool(opengolfsim_web_bridge.email)
+    if not connected_connectors and not web_configured:
         return
+
+    resolver_state = (
+        sim_player_state
+        if connected_connectors
+        else SimPlayerState(
+            handed=sim_player_state.handed,
+            club=sim_player_state.club,
+        )
+    )
     try:
-        resolved = resolve_shot(shot, sim_player_state)
+        resolved = resolve_shot(shot, resolver_state)
     except IncompleteShotError as e:
         logger.warning("[sim] shot not sendable: %s", e)
         socketio.emit("sim_shot_dropped", {"reason": str(e)})
         return
 
     values = resolved.as_values()
-    for connector in sim_connectors:
-        if not connector.is_connected():
-            continue
+
+    if web_configured:
+        if opengolfsim_web_bridge.send_shot(resolved):
+            socketio.emit(
+                "sim_shot",
+                {
+                    "target": "opengolfsim-web",
+                    "shot_number": resolved.shot_number,
+                    "values": values,
+                    "provenance": resolved.provenance,
+                },
+            )
+        else:
+            socketio.emit(
+                "sim_send_failed",
+                {
+                    "target": "opengolfsim-web",
+                    "reason": opengolfsim_web_bridge.status.message
+                    or "OpenGolfSim Web shot bridge is not connected",
+                },
+            )
+
+    for connector in connected_connectors:
         try:
             # Sends are synchronous on this thread, in connector order. Local sims
             # (the only target today) ack in microseconds; if a remote or laggy sim
@@ -1628,9 +1776,16 @@ def _forward_shot_to_simulators(shot: Shot) -> None:
             logger.info(
                 "[sim] → %s shot #%d: ball=%.1f vla=%.1f hla=%.1f spin=%.0f axis=%.1f "
                 "carry=%.1f (%dM/%dE)",
-                connector.name, resolved.shot_number, resolved.ball_speed_mph,
-                resolved.vla, resolved.hla, resolved.total_spin_rpm,
-                resolved.spin_axis_deg, resolved.carry_yards, measured, estimated,
+                connector.name,
+                resolved.shot_number,
+                resolved.ball_speed_mph,
+                resolved.vla,
+                resolved.hla,
+                resolved.total_spin_rpm,
+                resolved.spin_axis_deg,
+                resolved.carry_yards,
+                measured,
+                estimated,
             )
 
 
@@ -3011,6 +3166,12 @@ def main():
         print(f"Simulator connector enabled: {connector.name} -> {connector.host}:{connector.port}")
     if args.sim and not sim_connectors:
         print("Simulator connectors enabled (--sim) but none are enabled in config/sim.json")
+
+    _start_opengolfsim_web_bridge()
+    if opengolfsim_web_bridge.email:
+        print("OpenGolfSim Web shot bridge enabled for the saved Golf One account")
+    else:
+        print("OpenGolfSim Web shot bridge waiting for account setup")
 
     if args.mock:
         print("Running in MOCK mode - no radar required")

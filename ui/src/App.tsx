@@ -15,9 +15,10 @@ import { ConnectionStatus } from './components/ConnectionStatus';
 import { SimStatus } from './components/SimStatus';
 import { SimShotBadges } from './components/SimShotBadges';
 import { ClubPicker } from './components/ClubPicker';
-import { ClubSelectScreen } from './components/ClubSelectScreen';
 import { BallDetectionIndicator } from './components/BallDetectionIndicator';
 import { DisplayMode } from './components/DisplayMode';
+import { KioskExitControl } from './components/KioskExitControl';
+import { OpenGolfSimView } from './components/OpenGolfSimView';
 import {
   useLaunchDaddy,
   LaunchDaddyOverlay,
@@ -30,10 +31,16 @@ import Logo from './logo/Logo';
 
 import './App.css';
 
-type View = 'live' | 'stats' | 'shots' | 'camera' | 'debug';
+type View = 'simulator' | 'live' | 'stats' | 'shots' | 'camera' | 'debug';
 
 // Navigation icons as inline SVGs for better control
 const Icons = {
+  simulator: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <path d="M5 21V4m0 1h10l-2.5 3L15 11H5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 21h8M12 17v4" strokeLinecap="round" />
+    </svg>
+  ),
   live: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
       <circle cx="12" cy="12" r="3" />
@@ -65,7 +72,7 @@ const Icons = {
 };
 
 function AppContent() {
-  const { shutdown } = useSocket();
+  useSocket();
   const { connected, mockMode, debugMode, simStatuses, latestSimShots, serverClub } = useSystemStore(
     useShallow((state) => ({
       connected: state.connected,
@@ -95,7 +102,7 @@ function AppContent() {
     }))
   );
 
-  const [currentView, setCurrentView] = useState<View>('live');
+  const [currentView, setCurrentView] = useState<View>('simulator');
   const [selectedClub, setSelectedClub] = useState('driver');
   // Reflect a server-pushed club change (e.g. the club changed in the connected
   // simulator) in the local picker, without echoing back to the server. Done
@@ -106,11 +113,6 @@ function AppContent() {
     setAppliedServerClub(serverClub);
     setSelectedClub(serverClub);
   }
-  // Shown on every app load so the user confirms their club before the first
-  // shot (skippable, keeps the default). The /display route returns early
-  // below, so this interstitial never appears in the passive TV view.
-  const [showClubSelect, setShowClubSelect] = useState(true);
-  const [showShutdown, setShowShutdown] = useState(false);
   const { isLaunchDaddyMode, isExploding, triggerExplosion, handleSecretTap } = useLaunchDaddy();
   const { unitSystem, setUnitSystem } = useUnitPreference();
   const isDisplayRoute = typeof window !== 'undefined' && window.location.pathname.replace(/\/$/, '') === '/display';
@@ -129,21 +131,17 @@ function AppContent() {
   };
 
   if (isDisplayRoute) {
-    return <DisplayMode connected={connected} cameraStatus={cameraStatus} latestShot={latestShot} shots={shots} />;
+    return (
+      <>
+        <DisplayMode connected={connected} cameraStatus={cameraStatus} latestShot={latestShot} shots={shots} />
+        <KioskExitControl />
+      </>
+    );
   }
 
   return (
     <div className={`app ${isLaunchDaddyMode ? 'app--launch-daddy' : ''} ${isExploding ? 'app--exploding' : ''}`}>
-      {showClubSelect && (
-        <ClubSelectScreen
-          selectedClub={selectedClub}
-          onSelect={(club) => {
-            handleClubChange(club);
-            setShowClubSelect(false);
-          }}
-          onSkip={() => setShowClubSelect(false)}
-        />
-      )}
+      <KioskExitControl />
 
       {/* Launch Daddy Overlay */}
       <LaunchDaddyOverlay />
@@ -198,47 +196,17 @@ function AppContent() {
           />
           <SimStatus statuses={simStatuses} />
           <ConnectionStatus connected={connected} />
-          <button className="power-button" onClick={() => setShowShutdown(true)} title="Shut down">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width="20"
-              height="20"
-            >
-              <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-              <line x1="12" y1="2" x2="12" y2="12" />
-            </svg>
-          </button>
         </div>
       </header>
 
-      {showShutdown && (
-        <div className="shutdown-overlay">
-          <div className="shutdown-dialog">
-            <p>Shut down Golf One?</p>
-            <div className="shutdown-dialog__buttons">
-              <button
-                className="shutdown-dialog__confirm"
-                onClick={() => {
-                  shutdown();
-                  setShowShutdown(false);
-                }}
-              >
-                Shut Down
-              </button>
-              <button className="shutdown-dialog__cancel" onClick={() => setShowShutdown(false)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <nav className="nav">
+        <button
+          className={`nav__button ${currentView === 'simulator' ? 'nav__button--active' : ''}`}
+          onClick={() => setCurrentView('simulator')}
+        >
+          {Icons.simulator}
+          <span>Simulator</span>
+        </button>
         <button
           className={`nav__button ${currentView === 'live' ? 'nav__button--active' : ''}`}
           onClick={() => setCurrentView('live')}
@@ -280,6 +248,7 @@ function AppContent() {
       </nav>
 
       <main className="main">
+        {currentView === 'simulator' && <OpenGolfSimView />}
         {currentView === 'live' && (
           <div className="live-view">
             {isNewShot && <div key={shotVersion} className="shot-flash" />}

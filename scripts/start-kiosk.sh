@@ -10,6 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PORT=8080
 HOST="localhost"
+SERVER_PID=""
+BROWSER_PID=""
+KIOSK_PROFILE_DIR="${GOLF_ONE_BROWSER_PROFILE_DIR:-$HOME/.config/golf-one-kiosk/chromium}"
 MOCK_MODE=false
 RADAR_LOG=false
 DEBUG_MODE=false
@@ -272,9 +275,10 @@ cleanup() {
     if [ -n "$BROWSER_PID" ]; then
         kill $BROWSER_PID 2>/dev/null || true
     fi
-    # Chromium forks child processes that survive kill — clean them all
-    pkill -f "chromium.*--kiosk" 2>/dev/null || true
-    pkill -f "chrome.*--kiosk" 2>/dev/null || true
+    # Chromium forks child processes that survive the parent. Match only the
+    # dedicated Golf One profile rather than touching unrelated browser windows.
+    pkill -f "chromium.*--user-data-dir=$KIOSK_PROFILE_DIR" 2>/dev/null || true
+    pkill -f "chrome.*--user-data-dir=$KIOSK_PROFILE_DIR" 2>/dev/null || true
     exit 0
 }
 
@@ -546,51 +550,9 @@ log "Server is running!"
 # Launch browser in kiosk mode
 log "Launching kiosk browser..."
 
-KIOSK_URL="http://$HOST:$PORT"
-
-# Prefer the compositor's native Wayland socket, even when this script is
-# started over SSH and the desktop environment variables are not inherited.
-# The X11 fallback keeps the launcher usable on older Raspberry Pi OS images.
-RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-WAYLAND_SOCKET="${WAYLAND_DISPLAY:-}"
-if [ -z "$WAYLAND_SOCKET" ]; then
-    for candidate in "$RUNTIME_DIR"/wayland-*; do
-        if [ -S "$candidate" ]; then
-            WAYLAND_SOCKET="${candidate##*/}"
-            break
-        fi
-    done
-fi
-WAYLAND_SOCKET="${WAYLAND_SOCKET:-wayland-0}"
-CHROME_FLAGS="--kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --password-store=basic --force-prefers-reduced-motion"
-
-if [ -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]; then
-    export XDG_RUNTIME_DIR="$RUNTIME_DIR"
-    export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
-    CHROME_FLAGS="$CHROME_FLAGS --ozone-platform=wayland"
-    log "Using native Wayland kiosk rendering ($WAYLAND_DISPLAY)"
-else
-    CHROME_FLAGS="$CHROME_FLAGS --ozone-platform=x11"
-    warn "Wayland socket not found; using X11 kiosk rendering"
-fi
-
-# DISPLAY=:0 keeps the X11 fallback available when launched over SSH.
-if command -v chromium-browser &> /dev/null; then
-    DISPLAY=:0 chromium-browser $CHROME_FLAGS "$KIOSK_URL" &
-    BROWSER_PID=$!
-elif command -v chromium &> /dev/null; then
-    DISPLAY=:0 chromium $CHROME_FLAGS "$KIOSK_URL" &
-    BROWSER_PID=$!
-elif command -v google-chrome &> /dev/null; then
-    DISPLAY=:0 google-chrome $CHROME_FLAGS "$KIOSK_URL" &
-    BROWSER_PID=$!
-elif command -v firefox &> /dev/null; then
-    DISPLAY=:0 firefox --kiosk "$KIOSK_URL" &
-    BROWSER_PID=$!
-else
-    warn "No supported browser found. Open $KIOSK_URL manually."
-    warn "Supported browsers: chromium-browser, chromium, google-chrome, firefox"
-fi
+KIOSK_URL="${GOLF_ONE_KIOSK_URL:-http://$HOST:$PORT/?autolaunch=1}"
+"$SCRIPT_DIR/open-kiosk-browser.sh" "$KIOSK_URL" &
+BROWSER_PID=$!
 
 log "Golf One is running! Press Ctrl+C to stop."
 
