@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <!--
+    labwc-pi runs Labwc in merge-config mode, so Raspberry Pi OS continues to
+    provide the normal desktop configuration. This user profile only corrects
+    the Waveshare panel's Goodix touch coordinates.
+
+    The display remains at its visual transform of 90 degrees. The reported
+    touch points are one quarter-turn counterclockwise, so this documented
+    libinput matrix applies the inverse 90-degree clockwise transform.
+  -->
+  <touch
+    deviceName="Goodix Capacitive TouchScreen"
+    mapToOutput="DSI-2"
+    mouseEmulation="no"
+  />
+  <libinput>
+    <device category="Goodix Capacitive TouchScreen">
+      <calibrationMatrix>0 -1 1 1 0 0</calibrationMatrix>
+    </device>
+  </libinput>
+</openbox_config>

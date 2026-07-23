@@ -1,6 +1,20 @@
 """Tests for the kiosk browser rendering-path configuration."""
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
+
+
+def _apply_calibration(matrix, point):
+    """Apply a six-value libinput calibration matrix to a normalized point."""
+    a, b, c, d, e, f = matrix
+    x, y = point
+    return (a * x + b * y + c, d * x + e * y + f)
+
+
+def _rotate_counterclockwise(point):
+    """Model the quarter-turn mismatch reported on the installed display."""
+    x, y = point
+    return (y, 1 - x)
 
 
 def test_kiosk_prefers_native_wayland_and_reduced_motion():
@@ -44,7 +58,53 @@ def test_session_installer_preserves_rotation_and_installs_recovery_launcher():
     autostart = (repo_root / "scripts/setup/labwc-autostart").read_text(encoding="utf-8")
 
     assert 'cp "$LABWC_DIR/autostart" "$BACKUP_DIR/labwc-autostart.$STAMP"' in installer
+    assert 'cp "$LABWC_DIR/rc.xml" "$BACKUP_DIR/labwc-rc.$STAMP.xml"' in installer
     assert 'install -m 0644 "$SCRIPT_DIR/labwc-autostart" "$LABWC_DIR/autostart"' in installer
+    assert 'install -m 0644 "$SCRIPT_DIR/labwc-rc.xml" "$LABWC_DIR/rc.xml"' in installer
     assert 'install -m 0755 "$SCRIPT_DIR/GolfOne.desktop"' in installer
     assert "wlr-randr --output DSI-2 --transform 90" in autostart
     assert "./scripts/launch-golf-one.sh --mock --sim" in autostart
+
+
+def test_waveshare_touch_calibration_cancels_reported_corner_rotation():
+    repo_root = Path(__file__).resolve().parents[1]
+    config_path = repo_root / "scripts/setup/labwc-rc.xml"
+    root = ET.parse(config_path).getroot()
+    namespace = {"labwc": "http://openbox.org/3.4/rc"}
+    calibration = root.find(
+        "./labwc:libinput/labwc:device"
+        "[@category='Goodix Capacitive TouchScreen']/"
+        "labwc:calibrationMatrix",
+        namespace,
+    )
+    touch = root.find(
+        "./labwc:touch[@deviceName='Goodix Capacitive TouchScreen']",
+        namespace,
+    )
+
+    assert touch is not None
+    assert touch.attrib["mapToOutput"] == "DSI-2"
+    assert touch.attrib["mouseEmulation"] == "no"
+    assert calibration is not None
+    matrix = tuple(float(value) for value in calibration.text.split())
+    assert matrix == (0, -1, 1, 1, 0, 0)
+
+    corners = {
+        "top-left": (0, 0),
+        "bottom-left": (0, 1),
+        "bottom-right": (1, 1),
+        "top-right": (1, 0),
+    }
+    observed_before = {name: _rotate_counterclockwise(point) for name, point in corners.items()}
+    observed_after = {
+        name: _rotate_counterclockwise(_apply_calibration(matrix, point))
+        for name, point in corners.items()
+    }
+
+    assert observed_before == {
+        "top-left": (0, 1),
+        "bottom-left": (1, 1),
+        "bottom-right": (1, 0),
+        "top-right": (0, 0),
+    }
+    assert observed_after == corners
