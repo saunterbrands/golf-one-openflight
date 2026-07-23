@@ -157,3 +157,4 @@ def test_simulator_extension_closes_stale_spa_games_and_recovers_visual_test():
     assert "closeGameSession('iframe-removed')" in content
     assert "DIRECT_RANGE_RECOVERY_MS" in content
     assert "inFlightShot = null" in content
+    assert "window.location.pathname.startsWith('/fuse/examples/range')" in content

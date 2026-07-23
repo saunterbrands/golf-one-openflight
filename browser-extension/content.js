@@ -326,9 +326,7 @@
   let immersiveLayout = true;
   let directRangeRecoveryTimer = 0;
   const DIRECT_RANGE_RECOVERY_MS = 15000;
-  const directRangeVerification =
-    window.location.pathname === '/fuse/examples/range/index.html' &&
-    new URLSearchParams(window.location.search).get('golf-one-test') === '1';
+  const directRangeVerification = window.location.pathname.startsWith('/fuse/examples/range');
 
   const setGameState = (label, connectionState = 'connected') => {
     state.dataset.state = connectionState;
