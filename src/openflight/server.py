@@ -82,15 +82,20 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 opengolfsim_web_bridge = OpenGolfSimWebBridge()
 opengolfsim_browser_relay = BrowserShotRelay()
 opengolfsim_config_lock = threading.Lock()
+OPENGOLFSIM_WEB_URL = "https://app.opengolfsim.com/account/simulator"
+OFFLINE_FUSE_URL = "/offline-simulator"
 display_config_lock = threading.Lock()
 
 DISPLAY_MODE_URLS = {
-    "simulator": "/simulator/launch",
+    "practice_range": OFFLINE_FUSE_URL,
+    "simulator": OPENGOLFSIM_WEB_URL,
     "launch_monitor": "/display",
 }
 DEFAULT_DISPLAY_MODE = "simulator"
-OPENGOLFSIM_WEB_URL = "https://app.opengolfsim.com/account/simulator"
-OFFLINE_FUSE_URL = "/offline-simulator"
+OFFLINE_FUSE_PROFILE_BY_VARIANT = {
+    "range-explicit-webgl-anisotropy4-v3": "pi-balanced",
+    "range-explicit-webgl-v1": "full",
+}
 OPENGOLFSIM_WEB_FIELDS = [
     "ball_speed",
     "vla",
@@ -1069,13 +1074,42 @@ def _offline_fuse_available() -> bool:
     return (_offline_fuse_root() / "examples" / "range" / "index.html").is_file()
 
 
+def _offline_fuse_marker(filename: str) -> Optional[str]:
+    """Read one small, non-secret provenance marker from the active runtime."""
+
+    marker_path = _offline_fuse_root() / filename
+    try:
+        value = marker_path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return None
+
+    if not value or len(value) > 128:
+        return None
+    if any(not (character.isalnum() or character in "._-") for character in value):
+        logger.warning("[opengolfsim] ignoring malformed runtime marker %s", marker_path)
+        return None
+    return value
+
+
 def _opengolfsim_runtime_payload() -> dict:
     """Describe the official online and appliance-local simulator runtimes."""
 
+    offline_available = _offline_fuse_available()
+    build_variant = _offline_fuse_marker("BUILD_VARIANT") if offline_available else None
     return {
         "online_url": OPENGOLFSIM_WEB_URL,
         "offline_url": OFFLINE_FUSE_URL,
-        "offline_available": _offline_fuse_available(),
+        "offline_available": offline_available,
+        "offline_profile": OFFLINE_FUSE_PROFILE_BY_VARIANT.get(build_variant),
+        "build_variant": build_variant,
+        "source_commit": (
+            _offline_fuse_marker("SOURCE_COMMIT") if offline_available else None
+        ),
+        "source_patch_sha256": (
+            _offline_fuse_marker("SOURCE_PATCH_SHA256")
+            if offline_available
+            else None
+        ),
     }
 
 

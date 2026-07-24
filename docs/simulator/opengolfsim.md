@@ -14,12 +14,13 @@ opens the official experimental WebGL simulator.
 ## OpenGolfSim Web on the Waveshare
 
 1. Golf One boots into its Live dashboard.
-2. Open **Settings**, choose **OpenGolfSim Simulator**, and press **Show selected
-   display**.
-3. Golf One checks whether `https://app.opengolfsim.com/account/simulator` is
-   reachable. When online it opens the official hosted simulator; when offline
-   it opens the appliance-local FUSE Practice Range.
-4. Sign in to OpenGolfSim when the hosted site asks. The dedicated Chromium
+2. Open **Settings** and choose one explicit destination:
+   - **Optimized Local Practice Range** launches the board-tuned runtime at
+     `/offline-simulator`, including the Pi 5 balanced renderer when applicable.
+   - **OpenGolfSim Online** launches the official hosted course library.
+3. Press **Show selected display**. Golf One remembers the choice, but the Live
+   dashboard remains the first screen after every boot.
+4. Sign in to OpenGolfSim when the online site asks. The dedicated Chromium
    profile persists the official session cookie across kiosk and Pi restarts.
 5. Select a range or course.
 6. Wait for the lower-left **Golf One** chip to read **Game ready**.
@@ -135,9 +136,17 @@ Open it directly at:
 http://127.0.0.1:8080/offline-simulator
 ```
 
-The normal `/simulator/launch` page prefers the hosted simulator and falls back
-to this local range after an offline/timeout result. The same Golf One browser
-relay sends measured shots into both runtimes.
+The Dashboard's **Optimized Local Practice Range** choice goes directly to this
+URL, so internet availability cannot silently replace the benchmarked runtime
+with the hosted build. The **OpenGolfSim Online** choice is separate. The legacy
+`/simulator/launch` page still performs its original online-first fallback for
+older bookmarks.
+
+`/api/opengolfsim/runtime` reports the active local build's profile, variant,
+source commit, and patch hash from the same `current` runtime root used by
+`/fuse/*`. This lets the Dashboard and device tests prove which renderer will
+launch instead of inferring it from the board name. The same Golf One browser
+relay sends measured shots into both local and hosted runtimes.
 
 Only the official Practice Range is installed. Hosted account courses are not
 silently copied. A user-authored course can be made local later only when its
@@ -150,7 +159,7 @@ commercial Golf One product requires a commercial agreement with OpenGolfSim.
 ## Hosted simulator workflow
 
 1. From the Golf One Dashboard, open **Settings**, choose **OpenGolfSim
-   Simulator**, and press **Show selected display**.
+   Online**, and press **Show selected display**.
 2. Sign in to OpenGolfSim. The password stays entirely inside OpenGolfSim.
 3. Select a range or course.
 4. Wait for the lower-left **Golf One** chip to read **Game ready**.
@@ -201,11 +210,14 @@ stores the OpenGolfSim password.
 ## Dashboard controls
 
 From the full-screen simulator, press the lower-left **Golf One** chip and then
-**Dashboard**. The dashboard's Simulator tab can:
+**Dashboard**. The dashboard's **Settings** screen can:
 
-- display the active game's actual ready/in-flight/completed state;
-- configure an optional legacy WebSocket relay email;
-- relaunch OpenGolfSim full-screen.
+- show whether the local optimized runtime and its board profile are installed;
+- remember a local-range, hosted-simulator, or wide-display shortcut;
+- launch the optimized local range or OpenGolfSim Online full-screen.
+
+The in-game Golf One chip displays the active game's actual
+ready/in-flight/completed state and exposes the mock test-shot control.
 
 Mock test shots are intentionally available from the Golf One chip only while a
 course is open, so the visual result and delivery state can be checked together.
