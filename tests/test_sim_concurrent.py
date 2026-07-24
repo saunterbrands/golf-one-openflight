@@ -69,14 +69,14 @@ def test_shot_reaches_both_sims():
                 c.send_shot(resolved)
 
             # OpenGolfSim sends a device-ready frame on connect before the shot.
-            # Do not mistake that first TCP chunk for completion: fast hosts
-            # often coalesce ready+shot, while Raspberry Pi/Python 3.13 commonly
-            # delivers them as separate chunks.
+            # Do not mistake that first TCP chunk for completion: socket
+            # scheduling may coalesce ready+shot or deliver separate chunks.
             deadline = time.time() + 1.5
             while time.time() < deadline:
                 gspro_frames = _frames(gspro_srv.received)
                 ogs_wire = b"".join(ogs_srv.received)
-                ogs_frames = [json.loads(line) for line in ogs_wire.splitlines() if line]
+                complete_ogs_lines = ogs_wire.split(b"\n")[:-1]
+                ogs_frames = [json.loads(line) for line in complete_ogs_lines if line]
                 if any("BallData" in frame for frame in gspro_frames) and any(
                     frame.get("type") == "shot" for frame in ogs_frames
                 ):
