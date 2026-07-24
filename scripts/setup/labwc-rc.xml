@@ -9,12 +9,16 @@
     touch points are one quarter-turn counterclockwise, so this documented
     libinput matrix applies the inverse 90-degree clockwise transform.
 
+    Match Labwc's built-in "touch" category rather than the kernel-derived
+    device name. Raspberry Pi OS may prefix that name with an I2C address
+    (for example "10-005d"), while the input remains the same Goodix panel.
+
     Do not also add an exact-name touch mapToOutput rule here. Labwc applies
     the mapped output's rotation in addition to this matrix, which would turn
     the coordinates twice on this single-display appliance.
   -->
   <libinput>
-    <device category="Goodix Capacitive TouchScreen">
+    <device category="touch">
       <calibrationMatrix>0 -1 1 1 0 0</calibrationMatrix>
     </device>
   </libinput>

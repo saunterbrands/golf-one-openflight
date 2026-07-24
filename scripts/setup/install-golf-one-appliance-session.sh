@@ -30,6 +30,10 @@ TARGET_GROUP="$(id -gn "$TARGET_USER")"
 SESSION_CONFIG_DIR="$TARGET_HOME/.config/golf-one/labwc"
 AUTOSTART_DIR="$TARGET_HOME/.config/autostart"
 AUTOTOUCH_TARGET="$AUTOSTART_DIR/autotouch.desktop"
+APPLICATIONS_DIR="$TARGET_HOME/.local/share/applications"
+DESKTOP_DIR="$TARGET_HOME/Desktop"
+APPLICATION_TARGET="$APPLICATIONS_DIR/GolfOne.desktop"
+DESKTOP_TARGET="$DESKTOP_DIR/GolfOne.desktop"
 LIGHTDM_MAIN="/etc/lightdm/lightdm.conf"
 LEGACY_LIGHTDM_TARGET="/etc/lightdm/lightdm.conf.d/90-golf-one-appliance.conf"
 WAYLAND_TARGET="/usr/share/wayland-sessions/golf-one.desktop"
@@ -40,6 +44,7 @@ SYSTEM_LABWC_DIR="/etc/xdg/labwc"
 for required in \
     "$SCRIPT_DIR/golf-one-wayland.desktop" \
     "$SCRIPT_DIR/autotouch.desktop" \
+    "$SCRIPT_DIR/GolfOne.desktop" \
     "$SCRIPT_DIR/session-cover.png" \
     "$SCRIPT_DIR/verify-session-cover.py" \
     "$SCRIPT_DIR/kiosk-loading.html" \
@@ -102,15 +107,31 @@ fi
 if [ -f "$AUTOTOUCH_TARGET" ]; then
     cp -a "$AUTOTOUCH_TARGET" "$BACKUP_DIR/autotouch.desktop"
 fi
+if [ -f "$APPLICATION_TARGET" ]; then
+    cp -a "$APPLICATION_TARGET" "$BACKUP_DIR/GolfOne.application.desktop"
+fi
+if [ -f "$DESKTOP_TARGET" ]; then
+    cp -a "$DESKTOP_TARGET" "$BACKUP_DIR/GolfOne.desktop"
+fi
 
 install -d -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0700 "$SESSION_CONFIG_DIR"
 install -d -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0755 "$AUTOSTART_DIR"
+install -d -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0755 \
+    "$APPLICATIONS_DIR" "$DESKTOP_DIR"
 
 RC_TEMP="$(mktemp)"
 LIGHTDM_TEMP="$(mktemp)"
-trap 'rm -f "$RC_TEMP" "$LIGHTDM_TEMP"' EXIT
+DESKTOP_TEMP="$(mktemp)"
+trap 'rm -f "$RC_TEMP" "$LIGHTDM_TEMP" "$DESKTOP_TEMP"' EXIT
 cp "$SYSTEM_LABWC_DIR/rc.xml" "$RC_TEMP"
 cp "$LIGHTDM_MAIN" "$LIGHTDM_TEMP"
+PROJECT_DIR_SED="$(printf '%s\n' "$PROJECT_DIR" | sed 's/[&|]/\\&/g')"
+sed "s|@GOLF_ONE_PROJECT_DIR@|$PROJECT_DIR_SED|g" \
+    "$SCRIPT_DIR/GolfOne.desktop" >"$DESKTOP_TEMP"
+if grep -q '@GOLF_ONE_PROJECT_DIR@' "$DESKTOP_TEMP"; then
+    echo "Could not render the Golf One desktop launcher." >&2
+    exit 1
+fi
 
 set_lightdm_seat_key() {
     local key="$1"
@@ -150,8 +171,9 @@ set_lightdm_seat_key autologin-session golf-one "$LIGHTDM_TEMP"
 
 xmlstarlet ed -P -L \
     -N labwc="http://openbox.org/3.4/rc" \
-    -d '/labwc:openbox_config/labwc:touch[@deviceName="Goodix Capacitive TouchScreen"]' \
-    -d '/labwc:openbox_config/labwc:libinput/labwc:device[@category="Goodix Capacitive TouchScreen"]' \
+    -d '/labwc:openbox_config/labwc:touch[contains(@deviceName, "Goodix Capacitive TouchScreen")]' \
+    -d '/labwc:openbox_config/labwc:libinput/labwc:device[@category="touch"]' \
+    -d '/labwc:openbox_config/labwc:libinput/labwc:device[contains(@category, "Goodix Capacitive TouchScreen")]' \
     "$RC_TEMP"
 xmlstarlet ed -P -L \
     -N labwc="http://openbox.org/3.4/rc" \
@@ -173,32 +195,32 @@ xmlstarlet ed -P -L \
     -N labwc="http://openbox.org/3.4/rc" \
     -s '/labwc:openbox_config/labwc:libinput[last()]' -t elem -n device -v '' \
     -i '/labwc:openbox_config/labwc:libinput[last()]/device' -t attr \
-        -n category -v 'Goodix Capacitive TouchScreen' \
+        -n category -v 'touch' \
     -s '/labwc:openbox_config/labwc:libinput[last()]/device' -t elem \
         -n calibrationMatrix -v '0 -1 1 1 0 0' \
     "$RC_TEMP"
 xmlstarlet val -w "$RC_TEMP" >/dev/null
 
-GOODIX_DEVICE_COUNT="$(xmlstarlet sel \
+TOUCH_DEVICE_COUNT="$(xmlstarlet sel \
     -N labwc="http://openbox.org/3.4/rc" \
-    -t -v 'count(/labwc:openbox_config/labwc:libinput/labwc:device[@category="Goodix Capacitive TouchScreen"])' \
+    -t -v 'count(/labwc:openbox_config/labwc:libinput/labwc:device[@category="touch"])' \
     "$RC_TEMP")"
-GOODIX_TOUCH_COUNT="$(xmlstarlet sel \
+LEGACY_GOODIX_TOUCH_COUNT="$(xmlstarlet sel \
     -N labwc="http://openbox.org/3.4/rc" \
-    -t -v 'count(/labwc:openbox_config/labwc:touch[@deviceName="Goodix Capacitive TouchScreen"])' \
+    -t -v 'count(/labwc:openbox_config/labwc:touch[contains(@deviceName, "Goodix Capacitive TouchScreen")])' \
     "$RC_TEMP")"
-GOODIX_MAP_COUNT="$(xmlstarlet sel \
+TOUCH_MAP_COUNT="$(xmlstarlet sel \
     -N labwc="http://openbox.org/3.4/rc" \
-    -t -v 'count(/labwc:openbox_config/labwc:libinput/labwc:device[@category="Goodix Capacitive TouchScreen"]/labwc:mapToOutput)' \
+    -t -v 'count(/labwc:openbox_config/labwc:libinput/labwc:device[@category="touch"]/labwc:mapToOutput)' \
     "$RC_TEMP")"
-GOODIX_MATRIX="$(xmlstarlet sel \
+TOUCH_MATRIX="$(xmlstarlet sel \
     -N labwc="http://openbox.org/3.4/rc" \
-    -t -v '/labwc:openbox_config/labwc:libinput/labwc:device[@category="Goodix Capacitive TouchScreen"]/labwc:calibrationMatrix' \
+    -t -v '/labwc:openbox_config/labwc:libinput/labwc:device[@category="touch"]/labwc:calibrationMatrix' \
     "$RC_TEMP")"
-if [ "$GOODIX_DEVICE_COUNT" != "1" ] \
-    || [ "$GOODIX_TOUCH_COUNT" != "0" ] \
-    || [ "$GOODIX_MAP_COUNT" != "0" ] \
-    || [ "$GOODIX_MATRIX" != "0 -1 1 1 0 0" ]; then
+if [ "$TOUCH_DEVICE_COUNT" != "1" ] \
+    || [ "$LEGACY_GOODIX_TOUCH_COUNT" != "0" ] \
+    || [ "$TOUCH_MAP_COUNT" != "0" ] \
+    || [ "$TOUCH_MATRIX" != "0 -1 1 1 0 0" ]; then
     echo "Generated Labwc touch calibration failed validation." >&2
     exit 1
 fi
@@ -217,6 +239,18 @@ install -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0644 \
     /dev/null "$SESSION_CONFIG_DIR/autostart"
 install -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0644 \
     "$SCRIPT_DIR/autotouch.desktop" "$AUTOTOUCH_TARGET"
+install -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0755 \
+    "$DESKTOP_TEMP" "$APPLICATION_TARGET"
+install -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0755 \
+    "$DESKTOP_TEMP" "$DESKTOP_TARGET"
+if command -v gio >/dev/null 2>&1; then
+    runuser -u "$TARGET_USER" -- \
+        gio set "$DESKTOP_TARGET" metadata::trusted true >/dev/null 2>&1 || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+    runuser -u "$TARGET_USER" -- \
+        update-desktop-database "$APPLICATIONS_DIR" >/dev/null 2>&1 || true
+fi
 
 install -m 0644 "$SCRIPT_DIR/golf-one-wayland.desktop" "$WAYLAND_TARGET"
 chmod 0755 \
@@ -255,7 +289,7 @@ if ! printf '%s\n' "$EFFECTIVE_LIGHTDM" \
     exit 1
 fi
 
-rm -f "$RC_TEMP" "$LIGHTDM_TEMP"
+rm -f "$RC_TEMP" "$LIGHTDM_TEMP" "$DESKTOP_TEMP"
 trap - EXIT
 
 echo

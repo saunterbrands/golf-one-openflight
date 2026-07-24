@@ -1,7 +1,22 @@
-# Waveshare 12.3-inch panel on Raspberry Pi 5 DSI1 is exposed by DRM as DSI-2.
-# Transform 90 is the installed 180-degree display orientation.
-wlr-randr --output DSI-2 --transform 90
+# Raspberry Pi OS exposes the Waveshare panel as either DSI-1 or DSI-2,
+# depending on the image's camera/Hailo overlays. Select the connected panel.
+DISPLAY_OUTPUT="${GOLF_ONE_DISPLAY_OUTPUT:-}"
+if [ -z "$DISPLAY_OUTPUT" ]; then
+    for status_path in /sys/class/drm/card*-DSI-*/status; do
+        [ -r "$status_path" ] || continue
+        [ "$(cat "$status_path" 2>/dev/null)" = "connected" ] || continue
+        connector="${status_path%/status}"
+        connector="${connector##*/}"
+        DISPLAY_OUTPUT="${connector#*-}"
+        break
+    done
+fi
+if [ -n "$DISPLAY_OUTPUT" ]; then
+    wlr-randr \
+        --output "$DISPLAY_OUTPUT" \
+        --transform "${GOLF_ONE_DISPLAY_TRANSFORM:-90}"
+fi
 
 # Launch Golf One after the Wayland desktop is ready. The launcher selects real
 # radar mode only when it positively identifies the OPS243-A.
-sh -lc 'cd /home/openflight/golf-one-openflight && exec ./scripts/launch-golf-one.sh >> /home/openflight/golf-one-kiosk.log 2>&1' &
+sh -lc 'cd "@GOLF_ONE_PROJECT_DIR@" && exec ./scripts/launch-golf-one.sh >> "$HOME/golf-one-kiosk.log" 2>&1' &

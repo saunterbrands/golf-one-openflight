@@ -12,6 +12,19 @@ APPLICATIONS_DIR="$HOME/.local/share/applications"
 DESKTOP_DIR="$HOME/Desktop"
 BACKUP_DIR="$HOME/.config/golf-one/backups"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DESKTOP_TEMP="$(mktemp)"
+AUTOSTART_TEMP="$(mktemp)"
+PROJECT_DIR_SED="$(printf '%s\n' "$PROJECT_DIR" | sed 's/[&|]/\\&/g')"
+trap 'rm -f "$DESKTOP_TEMP" "$AUTOSTART_TEMP"' EXIT
+sed "s|@GOLF_ONE_PROJECT_DIR@|$PROJECT_DIR_SED|g" \
+    "$SCRIPT_DIR/GolfOne.desktop" >"$DESKTOP_TEMP"
+sed "s|@GOLF_ONE_PROJECT_DIR@|$PROJECT_DIR_SED|g" \
+    "$SCRIPT_DIR/labwc-autostart" >"$AUTOSTART_TEMP"
+if grep -q '@GOLF_ONE_PROJECT_DIR@' "$DESKTOP_TEMP" "$AUTOSTART_TEMP"; then
+    echo "Could not render the Golf One session files." >&2
+    exit 1
+fi
 
 mkdir -p \
     "$LABWC_DIR" \
@@ -30,7 +43,7 @@ if [ -f "$AUTOSTART_DIR/autotouch.desktop" ]; then
     cp "$AUTOSTART_DIR/autotouch.desktop" "$BACKUP_DIR/autotouch.$STAMP.desktop"
 fi
 
-install -m 0644 "$SCRIPT_DIR/labwc-autostart" "$LABWC_DIR/autostart"
+install -m 0644 "$AUTOSTART_TEMP" "$LABWC_DIR/autostart"
 install -m 0644 "$SCRIPT_DIR/autotouch.desktop" "$AUTOSTART_DIR/autotouch.desktop"
 
 if [ ! -s "$LABWC_DIR/rc.xml" ]; then
@@ -42,13 +55,14 @@ else
     fi
 
     RC_TEMP="$(mktemp "$LABWC_DIR/rc.xml.XXXXXX")"
-    trap 'rm -f "$RC_TEMP"' EXIT
+    trap 'rm -f "$RC_TEMP" "$DESKTOP_TEMP" "$AUTOSTART_TEMP"' EXIT
     cp "$LABWC_DIR/rc.xml" "$RC_TEMP"
 
     xmlstarlet ed -P -L \
         -N labwc="http://openbox.org/3.4/rc" \
-        -d '/labwc:openbox_config/labwc:touch[@deviceName="Goodix Capacitive TouchScreen"]' \
-        -d '/labwc:openbox_config/labwc:libinput/labwc:device[@category="Goodix Capacitive TouchScreen"]' \
+        -d '/labwc:openbox_config/labwc:touch[contains(@deviceName, "Goodix Capacitive TouchScreen")]' \
+        -d '/labwc:openbox_config/labwc:libinput/labwc:device[@category="touch"]' \
+        -d '/labwc:openbox_config/labwc:libinput/labwc:device[contains(@category, "Goodix Capacitive TouchScreen")]' \
         "$RC_TEMP"
     xmlstarlet ed -P -L \
         -N labwc="http://openbox.org/3.4/rc" \
@@ -70,18 +84,18 @@ else
         -N labwc="http://openbox.org/3.4/rc" \
         -s '/labwc:openbox_config/labwc:libinput[last()]' -t elem -n device -v '' \
         -i '/labwc:openbox_config/labwc:libinput[last()]/device' -t attr \
-            -n category -v 'Goodix Capacitive TouchScreen' \
+            -n category -v 'touch' \
         -s '/labwc:openbox_config/labwc:libinput[last()]/device' -t elem \
             -n calibrationMatrix -v '0 -1 1 1 0 0' \
         "$RC_TEMP"
     xmlstarlet val -w "$RC_TEMP" >/dev/null
     install -m 0644 "$RC_TEMP" "$LABWC_DIR/rc.xml"
     rm -f "$RC_TEMP"
-    trap - EXIT
+    trap 'rm -f "$DESKTOP_TEMP" "$AUTOSTART_TEMP"' EXIT
 fi
 
-install -m 0755 "$SCRIPT_DIR/GolfOne.desktop" "$APPLICATIONS_DIR/GolfOne.desktop"
-install -m 0755 "$SCRIPT_DIR/GolfOne.desktop" "$DESKTOP_DIR/GolfOne.desktop"
+install -m 0755 "$DESKTOP_TEMP" "$APPLICATIONS_DIR/GolfOne.desktop"
+install -m 0755 "$DESKTOP_TEMP" "$DESKTOP_DIR/GolfOne.desktop"
 
 if command -v gio >/dev/null 2>&1; then
     gio set "$DESKTOP_DIR/GolfOne.desktop" metadata::trusted true >/dev/null 2>&1 || true
@@ -93,3 +107,5 @@ fi
 echo "Golf One Labwc autostart and desktop launcher installed."
 echo "Previous Labwc autostart backup: $BACKUP_DIR/labwc-autostart.$STAMP"
 echo "Previous Labwc config backup: $BACKUP_DIR/labwc-rc.$STAMP.xml"
+rm -f "$DESKTOP_TEMP" "$AUTOSTART_TEMP"
+trap - EXIT

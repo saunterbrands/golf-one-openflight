@@ -93,7 +93,8 @@ def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
     assert "DEFAULT_ARGS=(--sim)" in launcher
     assert "flock -n 9" in launcher
     assert "Name=Golf One" in desktop
-    assert "/home/openflight/golf-one-openflight/scripts/launch-golf-one.sh" in desktop
+    assert "Exec=@GOLF_ONE_PROJECT_DIR@/scripts/launch-golf-one.sh" in desktop
+    assert "Icon=@GOLF_ONE_PROJECT_DIR@/ui/public/golfone-icon.svg" in desktop
     assert "--mock" not in desktop
 
 
@@ -106,10 +107,13 @@ def test_session_installer_preserves_rotation_and_installs_recovery_launcher():
 
     assert 'cp "$LABWC_DIR/autostart" "$BACKUP_DIR/labwc-autostart.$STAMP"' in installer
     assert 'cp "$LABWC_DIR/rc.xml" "$BACKUP_DIR/labwc-rc.$STAMP.xml"' in installer
-    assert 'install -m 0644 "$SCRIPT_DIR/labwc-autostart" "$LABWC_DIR/autostart"' in installer
+    assert 'install -m 0644 "$AUTOSTART_TEMP" "$LABWC_DIR/autostart"' in installer
     assert 'install -m 0644 "$SCRIPT_DIR/labwc-rc.xml" "$LABWC_DIR/rc.xml"' in installer
-    assert 'install -m 0755 "$SCRIPT_DIR/GolfOne.desktop"' in installer
-    assert "wlr-randr --output DSI-2 --transform 90" in autostart
+    assert 'install -m 0755 "$DESKTOP_TEMP"' in installer
+    assert "/sys/class/drm/card*-DSI-*/status" in autostart
+    assert '--output "$DISPLAY_OUTPUT"' in autostart
+    assert '--transform "${GOLF_ONE_DISPLAY_TRANSFORM:-90}"' in autostart
+    assert "@GOLF_ONE_PROJECT_DIR@" in autostart
     assert "./scripts/launch-golf-one.sh" in autostart
     assert "--mock --sim" not in autostart
 
@@ -239,16 +243,16 @@ def test_appliance_background_is_fail_closed_and_tracks_the_exact_swaybg_process
     assert "pgrep" not in show_cover
     assert "swaylock" not in show_cover
     assert "/usr/bin/setsid /usr/bin/swaybg" in show_cover
-    assert '--output DSI-2' in show_cover
+    assert '--output "$DISPLAY_OUTPUT"' in show_cover
     assert '--image "$COVER_IMAGE"' in show_cover
     assert "--mode fill" in show_cover
-    assert "/usr/bin/grim -o DSI-2" in show_cover
+    assert '/usr/bin/grim -o "$DISPLAY_OUTPUT"' in show_cover
     assert '"$COVER_VERIFIER"' in show_cover
     pid_capture = re.search(r'(?P<variable>COVER_PID|cover_pid)=(?:"\$!"|\$!)', show_cover)
     assert pid_capture is not None
     pgid_capture = show_cover.index('candidate_pgid="$(ps -o pgid=')
     pid_write = show_cover.index('"$COVER_PID" "$COVER_PGID" >"$COVER_PID_FILE"')
-    pixel_proof = show_cover.index("/usr/bin/grim -o DSI-2")
+    pixel_proof = show_cover.index('/usr/bin/grim -o "$DISPLAY_OUTPUT"')
     assert pid_capture.start() < pgid_capture < pid_write < pixel_proof
     assert 'if [ "$candidate_pgid" = "$COVER_PID" ]; then' in show_cover
     assert 'COVER_PGID="$candidate_pgid"' in show_cover
@@ -458,33 +462,30 @@ def test_appliance_session_entry_cannot_point_at_a_different_user_or_checkout():
         assert '"$SESSION_ENTRY_TEMP" "$WAYLAND_TARGET"' in installer
 
 
-def test_appliance_installer_generates_one_exact_goodix_rule_without_output_mapping():
+def test_appliance_installer_generates_one_touch_rule_without_output_mapping():
     repo_root = Path(__file__).resolve().parents[1]
     installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
         encoding="utf-8"
     )
 
-    # Remove every inherited Goodix touch/device rule before appending exactly
-    # one calibrated libinput device. This remains correct even when the base
-    # Raspberry Pi rc.xml changes or already contains duplicate rules.
+    # Remove inherited Goodix rules, including Raspberry Pi OS device names
+    # prefixed with an I2C address, before adding one generic touch category.
+    assert 'contains(@deviceName, "Goodix Capacitive TouchScreen")' in installer
     assert (
-        "-d '/labwc:openbox_config/labwc:touch[@deviceName=\"Goodix Capacitive TouchScreen\"]'"
+        "-d '/labwc:openbox_config/labwc:libinput/labwc:device[@category=\"touch\"]'"
     ) in installer
-    assert (
-        "-d '/labwc:openbox_config/labwc:libinput/labwc:device"
-        '[@category="Goodix Capacitive TouchScreen"]\''
-    ) in installer
-    assert installer.count("-n category -v 'Goodix Capacitive TouchScreen'") == 1
+    assert 'contains(@category, "Goodix Capacitive TouchScreen")' in installer
+    assert installer.count("-n category -v 'touch'") == 1
     assert installer.count("-n calibrationMatrix -v '0 -1 1 1 0 0'") == 1
     assert "-n mapToOutput" not in installer
-    assert "GOODIX_DEVICE_COUNT" in installer
-    assert "GOODIX_TOUCH_COUNT" in installer
-    assert "GOODIX_MAP_COUNT" in installer
-    assert "GOODIX_MATRIX" in installer
-    assert '[ "$GOODIX_DEVICE_COUNT" != "1" ]' in installer
-    assert '[ "$GOODIX_TOUCH_COUNT" != "0" ]' in installer
-    assert '[ "$GOODIX_MAP_COUNT" != "0" ]' in installer
-    assert '[ "$GOODIX_MATRIX" != "0 -1 1 1 0 0" ]' in installer
+    assert "TOUCH_DEVICE_COUNT" in installer
+    assert "LEGACY_GOODIX_TOUCH_COUNT" in installer
+    assert "TOUCH_MAP_COUNT" in installer
+    assert "TOUCH_MATRIX" in installer
+    assert '[ "$TOUCH_DEVICE_COUNT" != "1" ]' in installer
+    assert '[ "$LEGACY_GOODIX_TOUCH_COUNT" != "0" ]' in installer
+    assert '[ "$TOUCH_MAP_COUNT" != "0" ]' in installer
+    assert '[ "$TOUCH_MATRIX" != "0 -1 1 1 0 0" ]' in installer
 
 
 def test_waveshare_touch_calibration_cancels_reported_corner_rotation():
@@ -494,7 +495,7 @@ def test_waveshare_touch_calibration_cancels_reported_corner_rotation():
     namespace = {"labwc": "http://openbox.org/3.4/rc"}
     calibration = root.find(
         "./labwc:libinput/labwc:device"
-        "[@category='Goodix Capacitive TouchScreen']/"
+        "[@category='touch']/"
         "labwc:calibrationMatrix",
         namespace,
     )

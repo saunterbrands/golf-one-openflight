@@ -27,6 +27,8 @@ PAGE_REQUEST_FILE="$RUNTIME_DIR/golf-one-loading-page.request"
 DESKTOP_REQUEST_FILE="$RUNTIME_DIR/golf-one-desktop-exit.request"
 PAGE_READY_PORT=38917
 SESSION_LOG="${GOLF_ONE_SESSION_LOG:-$HOME/golf-one-kiosk.log}"
+DISPLAY_OUTPUT="${GOLF_ONE_DISPLAY_OUTPUT:-}"
+DISPLAY_TRANSFORM="${GOLF_ONE_DISPLAY_TRANSFORM:-90}"
 COVER_PID=""
 COVER_PGID=""
 PAGE_READY_SERVER_PID=""
@@ -39,6 +41,57 @@ exec >>"$SESSION_LOG" 2>&1
 
 session_log() {
     printf '[Golf One session] %s %s\n' "$(date --iso-8601=seconds)" "$*"
+}
+
+select_display_output() {
+    local connector candidate status_path
+
+    if [ -n "$DISPLAY_OUTPUT" ]; then
+        case "$DISPLAY_OUTPUT" in
+            *[!A-Za-z0-9._-]*)
+                session_log "FATAL: invalid configured display output: $DISPLAY_OUTPUT"
+                return 1
+                ;;
+        esac
+        return 0
+    fi
+
+    # Waveshare DSI numbering is not stable across Raspberry Pi OS images:
+    # the same panel is DSI-2 on the original appliance and DSI-1 on newer
+    # Hailo/camera images. Prefer the connected DSI connector rather than
+    # binding the appliance to either card or connector number.
+    for status_path in /sys/class/drm/card*-DSI-*/status; do
+        [ -r "$status_path" ] || continue
+        [ "$(cat "$status_path" 2>/dev/null)" = "connected" ] || continue
+        connector="${status_path%/status}"
+        connector="${connector##*/}"
+        DISPLAY_OUTPUT="${connector#*-}"
+        return 0
+    done
+
+    # Keep the recovery surface usable on a non-DSI test display.
+    for status_path in /sys/class/drm/card*/status; do
+        [ -r "$status_path" ] || continue
+        [ "$(cat "$status_path" 2>/dev/null)" = "connected" ] || continue
+        connector="${status_path%/status}"
+        connector="${connector##*/}"
+        DISPLAY_OUTPUT="${connector#*-}"
+        return 0
+    done
+
+    if command -v wlr-randr >/dev/null 2>&1; then
+        candidate="$(wlr-randr 2>/dev/null | awk '/^[^[:space:]]/ { print $1; exit }')"
+        case "$candidate" in
+            ''|*[!A-Za-z0-9._-]*) ;;
+            *)
+                DISPLAY_OUTPUT="$candidate"
+                return 0
+                ;;
+        esac
+    fi
+
+    session_log "FATAL: no connected display output was found"
+    return 1
 }
 
 stop_exact_pid() {
@@ -168,7 +221,7 @@ show_session_cover() {
     rm -f -- "$COVER_PROOF_FILE"
 
     /usr/bin/setsid /usr/bin/swaybg \
-        --output DSI-2 \
+        --output "$DISPLAY_OUTPUT" \
         --image "$COVER_IMAGE" \
         --mode fill \
         --color 173a30 &
@@ -194,7 +247,7 @@ show_session_cover() {
 
     for _ in $(seq 1 40); do
         if process_is_live "$COVER_PID" \
-            && /usr/bin/grim -o DSI-2 "$COVER_PROOF_FILE" 2>/dev/null \
+            && /usr/bin/grim -o "$DISPLAY_OUTPUT" "$COVER_PROOF_FILE" 2>/dev/null \
             && /usr/bin/python3 \
                 "$COVER_VERIFIER" \
                 "$COVER_IMAGE" \
@@ -420,8 +473,15 @@ terminate_session() {
 main() {
     session_log "Starting ordered Golf One appliance session"
 
-    if ! wlr-randr --output DSI-2 --transform 90; then
-        session_log "could not apply DSI-2 transform 90"
+    if ! select_display_output; then
+        # A missing connector cannot produce a provable branded recovery
+        # surface, so retain fail-closed SSH recovery semantics.
+        while :; do sleep 3600; done
+    fi
+    session_log "Using display $DISPLAY_OUTPUT with transform $DISPLAY_TRANSFORM"
+
+    if ! wlr-randr --output "$DISPLAY_OUTPUT" --transform "$DISPLAY_TRANSFORM"; then
+        session_log "could not apply $DISPLAY_OUTPUT transform $DISPLAY_TRANSFORM"
     fi
 
     if ! show_session_cover; then
