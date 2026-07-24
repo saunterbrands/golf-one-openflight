@@ -68,17 +68,26 @@ def test_shot_reaches_both_sims():
             for c in connectors:
                 c.send_shot(resolved)
 
+            # OpenGolfSim sends a device-ready frame on connect before the shot.
+            # Do not mistake that first TCP chunk for completion: fast hosts
+            # often coalesce ready+shot, while Raspberry Pi/Python 3.13 commonly
+            # delivers them as separate chunks.
             deadline = time.time() + 1.5
-            while time.time() < deadline and not (gspro_srv.received and ogs_srv.received):
+            while time.time() < deadline:
+                gspro_frames = _frames(gspro_srv.received)
+                ogs_wire = b"".join(ogs_srv.received)
+                ogs_frames = [json.loads(line) for line in ogs_wire.splitlines() if line]
+                if any("BallData" in frame for frame in gspro_frames) and any(
+                    frame.get("type") == "shot" for frame in ogs_frames
+                ):
+                    break
                 time.sleep(0.05)
 
-            gspro_shot = next(m for m in _frames(gspro_srv.received) if "BallData" in m)
+            gspro_shot = next(m for m in gspro_frames if "BallData" in m)
             assert gspro_shot["BallData"]["Speed"] == 135.0
             assert gspro_shot["APIversion"] == "1"
 
-            ogs_wire = b"".join(ogs_srv.received)
             assert ogs_wire.endswith(b"\n")
-            ogs_frames = [json.loads(line) for line in ogs_wire.splitlines() if line]
             assert {"type": "device", "status": "ready"} in ogs_frames
             ogs_shot = next(m for m in ogs_frames if m.get("type") == "shot")
             assert ogs_shot["shot"]["ballSpeed"] == 135.0
