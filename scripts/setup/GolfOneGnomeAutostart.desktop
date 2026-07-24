@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Golf One
+Comment=Start Golf One with a branded GNOME loading screen
+Exec=@GOLF_ONE_PROJECT_DIR@/scripts/launch-golf-one-gnome.sh
+Icon=@GOLF_ONE_PROJECT_DIR@/ui/public/golfone-icon.svg
+Terminal=false
+OnlyShowIn=GNOME;
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+StartupNotify=false
+NoDisplay=true
