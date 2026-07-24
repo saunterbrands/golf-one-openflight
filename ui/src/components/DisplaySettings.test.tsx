@@ -28,19 +28,34 @@ describe('DisplaySettings', () => {
     const html = renderToString(<DisplaySettings />);
 
     expect(html).toContain('Display Settings');
-    expect(html).toContain('OpenGolfSim Simulator');
+    expect(html).toContain('Optimized Local Practice Range');
+    expect(html).toContain('OpenGolfSim Online');
     expect(html).toContain('Wide Launch Monitor');
+    expect(html).toContain('DEVICE-OPTIMIZED');
     expect(html).toContain('Golf One Dashboard always starts first');
     expect(html).toContain('Remembered');
     expect(html).toContain('Show selected display');
     expect(html).not.toContain('Default display');
   });
 
-  it('loads and persists the remembered manual display selection on the Pi', async () => {
+  it('loads and persists the optimized local simulator selection on the Pi', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(_input).endsWith('/api/opengolfsim/runtime')) {
+        return new Response(
+          JSON.stringify({
+            offline_available: true,
+            offline_profile: 'pi-balanced',
+            build_variant: 'range-explicit-webgl-anisotropy4-v3',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
       const payload =
         init?.method === 'POST'
-          ? { mode: 'launch_monitor', url: '/display' }
+          ? { mode: 'practice_range', url: '/offline-simulator' }
           : { mode: 'simulator', url: 'https://app.opengolfsim.com/account/simulator' };
       return new Response(JSON.stringify(payload), {
         status: 200,
@@ -53,11 +68,11 @@ describe('DisplaySettings', () => {
       root.render(<DisplaySettings />);
     });
 
-    const wideOption = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) =>
-      button.textContent?.includes('Wide Launch Monitor')
+    const localRangeOption = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) =>
+      button.textContent?.includes('Optimized Local Practice Range')
     );
-    expect(wideOption).toBeDefined();
-    act(() => wideOption?.click());
+    expect(localRangeOption).toBeDefined();
+    act(() => localRangeOption?.click());
 
     const saveButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === 'Remember selection'
@@ -66,14 +81,16 @@ describe('DisplaySettings', () => {
       saveButton?.click();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1]?.[0])).toMatch(/\/api\/display-mode$/);
-    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const saveCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(String(saveCall?.[0])).toMatch(/\/api\/display-mode$/);
+    expect(saveCall?.[1]).toMatchObject({
       method: 'POST',
-      body: JSON.stringify({ mode: 'launch_monitor' }),
+      body: JSON.stringify({ mode: 'practice_range' }),
     });
     expect(container.textContent).toContain(
-      'Wide Launch Monitor is now remembered on this Golf One. The Dashboard will still open first.'
+      'Optimized Local Practice Range is now remembered on this Golf One. The Dashboard will still open first.'
     );
+    expect(container.textContent).toContain('Pi 5 balanced profile installed');
   });
 });

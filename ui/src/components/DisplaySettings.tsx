@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { getServerOrigin } from '../utils/serverOrigin';
 import './DisplaySettings.css';
 
-export type DisplayPreference = 'simulator' | 'launch_monitor';
+export type DisplayPreference = 'practice_range' | 'simulator' | 'launch_monitor';
 
 interface DisplayModeResponse {
   mode: DisplayPreference;
@@ -18,12 +18,26 @@ interface DisplayOption {
   destination: string;
 }
 
+interface OpenGolfSimRuntime {
+  offline_available: boolean;
+  offline_profile: 'pi-balanced' | 'full' | null;
+  build_variant: string | null;
+}
+
 const DISPLAY_OPTIONS: DisplayOption[] = [
   {
+    mode: 'practice_range',
+    eyebrow: 'FAST LOCAL',
+    name: 'Optimized Local Practice Range',
+    description:
+      'Launch the appliance-local OpenGolfSim range using the rendering profile benchmarked for this device.',
+    destination: 'LOCAL · OFFLINE · DEVICE-OPTIMIZED',
+  },
+  {
     mode: 'simulator',
-    eyebrow: 'PLAY',
-    name: 'OpenGolfSim Simulator',
-    description: 'Open courses, practice ranges, and the full simulator while Golf One sends every measured shot.',
+    eyebrow: 'ONLINE',
+    name: 'OpenGolfSim Online',
+    description: 'Sign in and open hosted courses while Golf One sends every measured shot through the browser bridge.',
     destination: 'app.opengolfsim.com',
   },
   {
@@ -36,6 +50,15 @@ const DISPLAY_OPTIONS: DisplayOption[] = [
 ];
 
 const DISPLAY_MODE_API_URL = `${getServerOrigin()}/api/display-mode`;
+const OPENGOLFSIM_RUNTIME_API_URL = `${getServerOrigin()}/api/opengolfsim/runtime`;
+
+const runtimeCopy = (runtime: OpenGolfSimRuntime | null) => {
+  if (!runtime) return 'Checking installed runtime…';
+  if (!runtime.offline_available) return 'Local runtime installation required';
+  if (runtime.offline_profile === 'pi-balanced') return 'Pi 5 balanced profile installed';
+  if (runtime.offline_profile === 'full') return 'Full-quality device profile installed';
+  return 'Device-optimized runtime installed';
+};
 
 async function saveDisplayMode(mode: DisplayPreference): Promise<DisplayModeResponse> {
   const response = await fetch(DISPLAY_MODE_API_URL, {
@@ -58,6 +81,7 @@ export function DisplaySettings() {
   const [savedMode, setSavedMode] = useState<DisplayPreference>('simulator');
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState('Loading the remembered display…');
+  const [runtime, setRuntime] = useState<OpenGolfSimRuntime | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -73,6 +97,30 @@ export function DisplaySettings() {
       })
       .catch(() => {
         if (active) setFeedback('OpenGolfSim is ready as the remembered selection.');
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    fetch(OPENGOLFSIM_RUNTIME_API_URL, { headers: { Accept: 'application/json' } })
+      .then(async (response) => {
+        const result = (await response.json()) as OpenGolfSimRuntime & { error?: string };
+        if (!response.ok) throw new Error(result.error || `status ${response.status}`);
+        if (active) setRuntime(result);
+      })
+      .catch(() => {
+        if (active) {
+          setRuntime({
+            offline_available: false,
+            offline_profile: null,
+            build_variant: null,
+          });
+        }
       });
 
     return () => {
@@ -150,6 +198,9 @@ export function DisplaySettings() {
                 <span className="display-settings__option-name">{option.name}</span>
                 <span className="display-settings__option-description">{option.description}</span>
                 <span className="display-settings__option-destination">{option.destination}</span>
+                {option.mode === 'practice_range' && (
+                  <span className="display-settings__option-runtime">{runtimeCopy(runtime)}</span>
+                )}
               </button>
             );
           })}

@@ -332,7 +332,7 @@ def test_display_mode_api_defaults_saves_and_reloads(server, monkeypatch, tmp_pa
     assert initial.status_code == 200
     assert initial.get_json() == {
         "mode": "simulator",
-        "url": "/simulator/launch",
+        "url": "https://app.opengolfsim.com/account/simulator",
     }
 
     saved = client.post("/api/display-mode", json={"mode": "launch_monitor"})
@@ -343,6 +343,23 @@ def test_display_mode_api_defaults_saves_and_reloads(server, monkeypatch, tmp_pa
 
     reloaded = client.get("/api/display-mode")
     assert reloaded.get_json() == {"mode": "launch_monitor", "url": "/display"}
+
+    local_range = client.post("/api/display-mode", json={"mode": "practice_range"})
+    assert local_range.status_code == 200
+    assert local_range.get_json() == {
+        "mode": "practice_range",
+        "url": "/offline-simulator",
+    }
+    assert json.loads(config_path.read_text(encoding="utf-8")) == {
+        "mode": "practice_range"
+    }
+
+    online = client.post("/api/display-mode", json={"mode": "simulator"})
+    assert online.status_code == 200
+    assert online.get_json() == {
+        "mode": "simulator",
+        "url": "https://app.opengolfsim.com/account/simulator",
+    }
 
 
 def test_offline_fuse_runtime_reports_and_serves_installed_range(
@@ -355,6 +372,18 @@ def test_offline_fuse_runtime_reports_and_serves_installed_range(
         "<!doctype html><title>Local FUSE Range</title>",
         encoding="utf-8",
     )
+    (fuse_root / "BUILD_VARIANT").write_text(
+        "range-explicit-webgl-anisotropy4-v3\n",
+        encoding="utf-8",
+    )
+    (fuse_root / "SOURCE_COMMIT").write_text(
+        "6f10092c4444a538dd869d495eb2cb45697a5fb5\n",
+        encoding="utf-8",
+    )
+    (fuse_root / "SOURCE_PATCH_SHA256").write_text(
+        "4905d5f6823125fc96594f83f3880fab5b905448a7ada9cf12959d151dbbebc3\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("GOLF_ONE_OFFLINE_FUSE_DIR", str(fuse_root))
     client = server.app.test_client()
 
@@ -364,6 +393,10 @@ def test_offline_fuse_runtime_reports_and_serves_installed_range(
         "online_url": "https://app.opengolfsim.com/account/simulator",
         "offline_url": "/offline-simulator",
         "offline_available": True,
+        "offline_profile": "pi-balanced",
+        "build_variant": "range-explicit-webgl-anisotropy4-v3",
+        "source_commit": "6f10092c4444a538dd869d495eb2cb45697a5fb5",
+        "source_patch_sha256": "4905d5f6823125fc96594f83f3880fab5b905448a7ada9cf12959d151dbbebc3",
     }
 
     wrapper = client.get("/offline-simulator")
@@ -378,6 +411,10 @@ def test_offline_fuse_runtime_reports_and_serves_installed_range(
     asset = client.get("/fuse/examples/range/index.html")
     assert asset.status_code == 200
     assert "Local FUSE Range" in asset.get_data(as_text=True)
+    assert (
+        client.get("/fuse/BUILD_VARIANT").get_data(as_text=True).strip()
+        == "range-explicit-webgl-anisotropy4-v3"
+    )
 
 
 def test_offline_fuse_runtime_fails_clearly_when_range_is_not_installed(
@@ -389,12 +426,45 @@ def test_offline_fuse_runtime_fails_clearly_when_range_is_not_installed(
     )
     client = server.app.test_client()
 
-    assert client.get("/api/opengolfsim/runtime").get_json()["offline_available"] is False
+    assert client.get("/api/opengolfsim/runtime").get_json() == {
+        "online_url": "https://app.opengolfsim.com/account/simulator",
+        "offline_url": "/offline-simulator",
+        "offline_available": False,
+        "offline_profile": None,
+        "build_variant": None,
+        "source_commit": None,
+        "source_patch_sha256": None,
+    }
     unavailable = client.get("/offline-simulator")
     assert unavailable.status_code == 503
     assert "Offline Practice Range is not installed" in unavailable.get_data(
         as_text=True
     )
+
+
+def test_offline_fuse_runtime_ignores_missing_or_malformed_provenance(
+    server, monkeypatch, tmp_path
+):
+    fuse_root = tmp_path / "fuse" / "current"
+    range_dir = fuse_root / "examples" / "range"
+    range_dir.mkdir(parents=True)
+    (range_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (fuse_root / "BUILD_VARIANT").write_text("../../not-a-variant\n", encoding="utf-8")
+    (fuse_root / "SOURCE_COMMIT").write_text("x" * 129, encoding="utf-8")
+    monkeypatch.setenv("GOLF_ONE_OFFLINE_FUSE_DIR", str(fuse_root))
+
+    runtime = server.app.test_client().get("/api/opengolfsim/runtime")
+
+    assert runtime.status_code == 200
+    assert runtime.get_json() == {
+        "online_url": "https://app.opengolfsim.com/account/simulator",
+        "offline_url": "/offline-simulator",
+        "offline_available": True,
+        "offline_profile": None,
+        "build_variant": None,
+        "source_commit": None,
+        "source_patch_sha256": None,
+    }
 
 
 def test_simulator_launcher_prefers_official_login_and_falls_back_local(server):

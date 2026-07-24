@@ -1146,6 +1146,66 @@ def test_pi_balanced_fuse_patch_keeps_msaa_and_caps_only_range_grass_textures():
     assert "src/lights.ts" not in patch
 
 
+def test_offline_fuse_installer_selects_profile_from_model_or_explicit_override(
+    tmp_path,
+):
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = repo_root / "scripts/setup/install-offline-fuse-range.sh"
+    commit = "6f10092c4444a538dd869d495eb2cb45697a5fb5"
+    cases = [
+        (
+            "Raspberry Pi 5 Model B Rev 1.1\0",
+            "auto",
+            "pi-balanced",
+            "range-explicit-webgl-anisotropy4-v3",
+        ),
+        ("Orange Pi 5\0", "auto", "full", "range-explicit-webgl-v1"),
+        (
+            "Raspberry Pi 5 Model B Rev 1.1\0",
+            "full",
+            "full",
+            "range-explicit-webgl-v1",
+        ),
+    ]
+
+    for index, (model, requested_profile, expected_profile, variant) in enumerate(
+        cases
+    ):
+        install_root = tmp_path / f"fuse-{index}"
+        version_dir = install_root / f"{commit}-{variant}"
+        (version_dir / "examples/range").mkdir(parents=True)
+        (version_dir / "examples/range/index.html").write_text(
+            "<!doctype html>",
+            encoding="utf-8",
+        )
+        patch = repo_root / "scripts/setup/patches" / f"fuse-{commit}-{variant}.patch"
+        (version_dir / "SOURCE_COMMIT").write_text(f"{commit}\n", encoding="utf-8")
+        (version_dir / "BUILD_VARIANT").write_text(f"{variant}\n", encoding="utf-8")
+        (version_dir / "SOURCE_PATCH_SHA256").write_text(
+            f"{hashlib.sha256(patch.read_bytes()).hexdigest()}\n",
+            encoding="utf-8",
+        )
+        model_path = tmp_path / f"model-{index}"
+        model_path.write_bytes(model.encode("utf-8"))
+
+        result = subprocess.run(
+            ["bash", str(installer)],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "GOLF_ONE_DEVICE_MODEL_PATH": str(model_path),
+                "GOLF_ONE_FUSE_PROFILE": requested_profile,
+                "GOLF_ONE_OFFLINE_FUSE_INSTALL_ROOT": str(install_root),
+            },
+        )
+
+        assert (install_root / "current").resolve() == version_dir.resolve()
+        assert f"Rendering profile: {expected_profile}" in result.stdout
+        assert f"Build variant: {variant}" in result.stdout
+
+
 def test_offline_fuse_installer_preserves_active_runtime_for_rollback(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
     installer = repo_root / "scripts/setup/install-offline-fuse-range.sh"
@@ -1184,6 +1244,7 @@ def test_offline_fuse_installer_preserves_active_runtime_for_rollback(tmp_path):
         text=True,
         env={
             **os.environ,
+            "GOLF_ONE_FUSE_PROFILE": "full",
             "GOLF_ONE_OFFLINE_FUSE_INSTALL_ROOT": str(install_root),
         },
     )
