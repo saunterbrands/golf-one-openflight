@@ -149,6 +149,14 @@ main() {
         exec "$LAUNCH_SCRIPT" "$@"
     fi
 
+    # The Orange Pi 5's measured fast path is X11 + ANGLE GLES/Panfrost at
+    # device scale factor 1. Pin it for this dedicated GNOME/X11 launcher so
+    # a future Wayland socket or desktop preference cannot silently move the
+    # kiosk onto an unbenchmarked rendering path. Explicit caller overrides
+    # remain available for controlled A/B tests.
+    export GOLF_ONE_OZONE_PLATFORM="${GOLF_ONE_OZONE_PLATFORM:-x11}"
+    export GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR="${GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR:-1}"
+
     mkdir -p "$RUNTIME_DIR"
     start_loading_page_ready_server
     "$BROWSER_SCRIPT" "$BOOT_PAGE_URL" &

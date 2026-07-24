@@ -57,6 +57,11 @@ def test_kiosk_prefers_native_wayland_and_reduced_motion():
     assert '[ -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]' in browser_script
     assert "--ozone-platform=wayland" in browser_script
     assert "--ozone-platform=x11" in browser_script
+    assert 'OZONE_PLATFORM="${GOLF_ONE_OZONE_PLATFORM:-auto}"' in browser_script
+    assert (
+        'FORCE_DEVICE_SCALE_FACTOR="${GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR:-}"'
+        in browser_script
+    )
     assert "--force-prefers-reduced-motion" in browser_script
     assert "--password-store=basic" in browser_script
     assert "--user-data-dir=" in browser_script
@@ -225,6 +230,45 @@ def test_kiosk_does_not_move_session_files_owned_by_live_profile_browser(tmp_pat
     assert chromium_args[-1] == requested_url
 
 
+def test_kiosk_can_pin_measured_x11_path_and_device_scale(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    browser_script = repo_root / "scripts/open-kiosk-browser.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    chromium = fake_bin / "chromium"
+    chromium.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$GOLF_ONE_BROWSER_ARGS_FILE"\n',
+        encoding="utf-8",
+    )
+    chromium.chmod(0o755)
+
+    args_file = tmp_path / "chromium-args"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    env = os.environ | {
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "GOLF_ONE_BROWSER_PROFILE_DIR": str(tmp_path / "profile"),
+        "GOLF_ONE_BROWSER_EXTENSION_DIR": str(tmp_path / "no-extension"),
+        "GOLF_ONE_BROWSER_ARGS_FILE": str(args_file),
+        "GOLF_ONE_OZONE_PLATFORM": "x11",
+        "GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR": "1",
+        "XDG_RUNTIME_DIR": str(runtime_dir),
+    }
+
+    subprocess.run(
+        ["bash", str(browser_script), "http://localhost:8080/"],
+        check=True,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    args = args_file.read_text(encoding="utf-8").splitlines()
+    assert "--ozone-platform=x11" in args
+    assert "--ozone-platform=wayland" not in args
+    assert "--force-device-scale-factor=1" in args
+
+
 def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
     repo_root = Path(__file__).resolve().parents[1]
     launcher = (repo_root / "scripts/launch-golf-one.sh").read_text(encoding="utf-8")
@@ -277,7 +321,7 @@ def test_gnome_x11_autostart_uses_branded_loading_browser_and_focus_wrapper():
     assert 'xdotool windowfocus "$window_id"' in wrapper
 
     platform_branch = browser[
-        browser.index('if [ -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]') :
+        browser.index('if [ "$OZONE_PLATFORM" = "wayland" ]') :
     ]
     wayland_branch, x11_branch = platform_branch.split("\nelse\n", 1)
     assert "--class=GolfOneKiosk" not in wayland_branch
@@ -285,6 +329,11 @@ def test_gnome_x11_autostart_uses_branded_loading_browser_and_focus_wrapper():
     assert "OnlyShowIn=GNOME;" in autostart
     assert (
         "Exec=@GOLF_ONE_PROJECT_DIR@/scripts/launch-golf-one-gnome.sh" in autostart
+    )
+    assert 'GOLF_ONE_OZONE_PLATFORM="${GOLF_ONE_OZONE_PLATFORM:-x11}"' in wrapper
+    assert (
+        'GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR="${GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR:-1}"'
+        in wrapper
     )
 
 
@@ -349,6 +398,10 @@ def test_gnome_wrapper_focuses_loading_window_and_reuses_its_browser(tmp_path):
     browser.write_text(
         "#!/bin/sh\n"
         'printf "browser-url=%s\\n" "$1" >> "$GOLF_ONE_TEST_CALLS"\n'
+        'printf "ozone=%s\\n" "$GOLF_ONE_OZONE_PLATFORM" '
+        '>> "$GOLF_ONE_TEST_CALLS"\n'
+        'printf "scale=%s\\n" "$GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR" '
+        '>> "$GOLF_ONE_TEST_CALLS"\n'
         "exec sleep 10\n",
         encoding="utf-8",
     )
@@ -395,6 +448,8 @@ def test_gnome_wrapper_focuses_loading_window_and_reuses_its_browser(tmp_path):
     assert result.returncode == 0
     recorded = calls.read_text(encoding="utf-8")
     assert f"browser-url=file://{repo_root}/scripts/setup/kiosk-loading.html#{kiosk_url}" in recorded
+    assert "ozone=x11" in recorded
+    assert "scale=1" in recorded
     assert "browser-owned=1" in recorded
     assert f"kiosk-url={kiosk_url}" in recorded
     assert "launcher-args=--mock --sim" in recorded

@@ -76,6 +76,43 @@ FPS (+41%) on the Waveshare display. A more aggressive 33 FPS experiment also
 disabled MSAA, but it was rejected because the ball trace and mountain edges
 were visibly jagged.
 
+### Orange Pi 5 rendering default
+
+The Orange Pi GNOME/X11 launcher pins Chromium to the measured Mali-G610 fast
+path:
+
+```text
+--ozone-platform=x11
+--use-angle=gles
+--enable-gpu-rasterization
+--force-device-scale-factor=1
+```
+
+Chromium reports `ANGLE (Mesa, Mali-G610 (Panfrost), OpenGL ES 3.1)` and the
+GPU process owns the Panthor DRM render node. The local full-quality explicit
+WebGL range measured 59.83 FPS at 1920 x 720, effectively the 60 Hz display
+ceiling. The equivalent upstream renderer averaged 42.67 FPS in the same clean
+GNOME/X11 session.
+
+A compositor-free Openbox session was also tested rather than assumed faster.
+Its first two upstream-renderer shots averaged 43.73 FPS, but a longer four-shot
+repeat fell to 39.22 FPS and its explicit-WebGL average was marginally below
+GNOME. Openbox is therefore not the boot default. Keeping GNOME preserves the
+normal desktop recovery path while matching or beating the lightweight session
+in the repeated rendering test.
+
+The GPU remains on its adaptive `simple_ondemand` governor. It reached the full
+1 GHz clock during the benchmark, so fixing the governor at `performance` would
+add idle power and heat without exposing a higher rendering clock.
+
+For a controlled rendering A/B, override either pin only for that launch:
+
+```bash
+GOLF_ONE_OZONE_PLATFORM=auto \
+GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR=1 \
+scripts/launch-golf-one-gnome.sh
+```
+
 Override automatic board detection when building a runtime with:
 
 ```bash

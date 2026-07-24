@@ -17,6 +17,8 @@ EXTENSION_RUNTIME_DIR="$EXTENSION_DIR"
 PROC_ROOT="${GOLF_ONE_BROWSER_PROC_ROOT:-/proc}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 WAYLAND_SOCKET="${WAYLAND_DISPLAY:-}"
+OZONE_PLATFORM="${GOLF_ONE_OZONE_PLATFORM:-auto}"
+FORCE_DEVICE_SCALE_FACTOR="${GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR:-}"
 
 if [ -z "$WAYLAND_SOCKET" ]; then
     for candidate in "$RUNTIME_DIR"/wayland-*; do
@@ -139,6 +141,16 @@ CHROME_FLAGS=(
     "--user-data-dir=$PROFILE_DIR"
 )
 
+if [ -n "$FORCE_DEVICE_SCALE_FACTOR" ]; then
+    case "$FORCE_DEVICE_SCALE_FACTOR" in
+        *[!0-9.]*|.*|*.*.*|*.)
+            echo "[Golf One] Invalid device scale factor: $FORCE_DEVICE_SCALE_FACTOR" >&2
+            exit 2
+            ;;
+    esac
+    CHROME_FLAGS+=("--force-device-scale-factor=$FORCE_DEVICE_SCALE_FACTOR")
+fi
+
 if [ -f "$EXTENSION_DIR/manifest.json" ]; then
     # Chromium can retain an old Manifest V3 service worker in a persistent
     # profile even after an unpacked extension changes on disk. Loading each
@@ -170,7 +182,28 @@ if [ -f "$EXTENSION_DIR/manifest.json" ]; then
     echo "[Golf One] Loading extension build ${EXTENSION_FINGERPRINT:0:12}"
 fi
 
-if [ -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]; then
+case "$OZONE_PLATFORM" in
+    auto)
+        if [ -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]; then
+            OZONE_PLATFORM=wayland
+        else
+            OZONE_PLATFORM=x11
+        fi
+        ;;
+    x11) ;;
+    wayland)
+        if [ ! -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]; then
+            echo "[Golf One] Requested Wayland socket is unavailable: $RUNTIME_DIR/$WAYLAND_SOCKET" >&2
+            exit 2
+        fi
+        ;;
+    *)
+        echo "[Golf One] Invalid ozone platform: $OZONE_PLATFORM" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$OZONE_PLATFORM" = "wayland" ]; then
     export XDG_RUNTIME_DIR="$RUNTIME_DIR"
     export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
     CHROME_FLAGS+=(--ozone-platform=wayland)
