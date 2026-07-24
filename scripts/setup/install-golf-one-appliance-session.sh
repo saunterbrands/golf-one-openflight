@@ -27,7 +27,8 @@ fi
 
 TARGET_HOME="$(printf '%s\n' "$PASSWD_ENTRY" | cut -d: -f6)"
 TARGET_GROUP="$(id -gn "$TARGET_USER")"
-SESSION_CONFIG_DIR="$TARGET_HOME/.config/golf-one/labwc"
+GOLF_ONE_CONFIG_DIR="$TARGET_HOME/.config/golf-one"
+SESSION_CONFIG_DIR="$GOLF_ONE_CONFIG_DIR/labwc"
 AUTOSTART_DIR="$TARGET_HOME/.config/autostart"
 AUTOTOUCH_TARGET="$AUTOSTART_DIR/autotouch.desktop"
 APPLICATIONS_DIR="$TARGET_HOME/.local/share/applications"
@@ -114,7 +115,8 @@ if [ -f "$DESKTOP_TARGET" ]; then
     cp -a "$DESKTOP_TARGET" "$BACKUP_DIR/GolfOne.desktop"
 fi
 
-install -d -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0700 "$SESSION_CONFIG_DIR"
+install -d -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0700 \
+    "$GOLF_ONE_CONFIG_DIR" "$SESSION_CONFIG_DIR"
 install -d -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0755 "$AUTOSTART_DIR"
 install -d -o "$TARGET_USER" -g "$TARGET_GROUP" -m 0755 \
     "$APPLICATIONS_DIR" "$DESKTOP_DIR"

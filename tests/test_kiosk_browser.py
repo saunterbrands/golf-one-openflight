@@ -418,6 +418,21 @@ def test_appliance_installer_disables_autotouch_for_the_target_user():
     )
 
 
+def test_appliance_installer_owns_the_writable_golf_one_config_directory():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'GOLF_ONE_CONFIG_DIR="$TARGET_HOME/.config/golf-one"' in installer
+    assert 'SESSION_CONFIG_DIR="$GOLF_ONE_CONFIG_DIR/labwc"' in installer
+    assert re.search(
+        r'(?ms)install -d\b.{0,180}-o "\$TARGET_USER".{0,180}'
+        r'"\$GOLF_ONE_CONFIG_DIR".{0,120}"\$SESSION_CONFIG_DIR"',
+        installer,
+    )
+
+
 def test_appliance_session_entry_cannot_point_at_a_different_user_or_checkout():
     repo_root = Path(__file__).resolve().parents[1]
     installer = (repo_root / "scripts/setup/install-golf-one-appliance-session.sh").read_text(
