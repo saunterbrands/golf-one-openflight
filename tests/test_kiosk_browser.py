@@ -57,6 +57,11 @@ def test_kiosk_prefers_native_wayland_and_reduced_motion():
     assert '[ -S "$RUNTIME_DIR/$WAYLAND_SOCKET" ]' in browser_script
     assert "--ozone-platform=wayland" in browser_script
     assert "--ozone-platform=x11" in browser_script
+    assert 'OZONE_PLATFORM="${GOLF_ONE_OZONE_PLATFORM:-auto}"' in browser_script
+    assert (
+        'FORCE_DEVICE_SCALE_FACTOR="${GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR:-}"'
+        in browser_script
+    )
     assert "--force-prefers-reduced-motion" in browser_script
     assert "--password-store=basic" in browser_script
     assert "--user-data-dir=" in browser_script
@@ -74,6 +79,194 @@ def test_kiosk_fingerprints_extension_source_to_avoid_stale_service_workers():
     assert "EXTENSION_RUNTIME_DIR" in browser_script
     assert 'sha256sum "$EXTENSION_DIR/manifest.json"' in browser_script
     assert '"--load-extension=$EXTENSION_RUNTIME_DIR"' in browser_script
+
+
+def test_kiosk_rotates_stale_session_state_without_erasing_login_profile(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    browser_script = repo_root / "scripts/open-kiosk-browser.sh"
+    profile = tmp_path / "profile"
+    default = profile / "Default"
+    sessions = default / "Sessions"
+    sessions.mkdir(parents=True)
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    host = subprocess.run(
+        ["hostname"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    (profile / "SingletonLock").symlink_to(f"{host}-999999")
+
+    restore_state = {
+        default / "Current Session": "current-session",
+        default / "Current Tabs": "current-tabs",
+        default / "Last Session": "last-session",
+        default / "Last Tabs": "last-tabs",
+        sessions / "Session_123": "new-session",
+        sessions / "Tabs_123": "new-tabs",
+    }
+    for path, content in restore_state.items():
+        path.write_text(content, encoding="utf-8")
+
+    preserved_state = {
+        default / "Cookies": "saved-login-cookie",
+        default / "Login Data": "saved-password",
+        default / "Preferences": "saved-preferences",
+        profile / "Local State": "saved-local-state",
+    }
+    for path, content in preserved_state.items():
+        path.write_text(content, encoding="utf-8")
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    chromium = fake_bin / "chromium"
+    chromium.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$GOLF_ONE_BROWSER_ARGS_FILE"\n',
+        encoding="utf-8",
+    )
+    chromium.chmod(0o755)
+
+    args_file = tmp_path / "chromium-args"
+    backup_root = tmp_path / "session-backups"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    requested_url = "http://localhost:8080/"
+    env = os.environ | {
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "GOLF_ONE_BROWSER_PROFILE_DIR": str(profile),
+        "GOLF_ONE_BROWSER_SESSION_BACKUP_DIR": str(backup_root),
+        "GOLF_ONE_BROWSER_EXTENSION_DIR": str(tmp_path / "no-extension"),
+        "GOLF_ONE_BROWSER_PROC_ROOT": str(proc_root),
+        "GOLF_ONE_BROWSER_ARGS_FILE": str(args_file),
+        "XDG_RUNTIME_DIR": str(runtime_dir),
+    }
+
+    subprocess.run(
+        ["bash", str(browser_script), requested_url],
+        check=True,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    backups = list(backup_root.iterdir())
+    assert len(backups) == 1
+    backup = backups[0]
+    for original, content in restore_state.items():
+        assert not original.exists()
+        relative = original.relative_to(profile)
+        assert (backup / relative).read_text(encoding="utf-8") == content
+
+    for path, content in preserved_state.items():
+        assert path.read_text(encoding="utf-8") == content
+        assert not (backup / path.relative_to(profile)).exists()
+
+    chromium_args = args_file.read_text(encoding="utf-8").splitlines()
+    assert chromium_args[-1] == requested_url
+
+
+def test_kiosk_does_not_move_session_files_owned_by_live_profile_browser(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    browser_script = repo_root / "scripts/open-kiosk-browser.sh"
+    profile = tmp_path / "profile"
+    sessions = profile / "Default" / "Sessions"
+    sessions.mkdir(parents=True)
+    session_state = sessions / "Session_456"
+    session_state.write_text("live-session", encoding="utf-8")
+
+    proc_root = tmp_path / "proc"
+    browser_pid = 424242
+    browser_proc = proc_root / str(browser_pid)
+    browser_proc.mkdir(parents=True)
+    (browser_proc / "status").write_text(
+        f"Name:\tchromium\nUid:\t{os.getuid()}\t{os.getuid()}\t{os.getuid()}\t{os.getuid()}\n",
+        encoding="utf-8",
+    )
+    (browser_proc / "cmdline").write_bytes(
+        b"/usr/lib/chromium/chromium\0"
+        + f"--user-data-dir={profile}".encode()
+        + b"\0"
+    )
+    (browser_proc / "exe").symlink_to("/usr/lib/chromium/chromium")
+    host = subprocess.run(
+        ["hostname"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    (profile / "SingletonLock").symlink_to(f"{host}-{browser_pid}")
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    chromium = fake_bin / "chromium"
+    chromium.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$GOLF_ONE_BROWSER_ARGS_FILE"\n',
+        encoding="utf-8",
+    )
+    chromium.chmod(0o755)
+
+    args_file = tmp_path / "chromium-args"
+    backup_root = tmp_path / "session-backups"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    requested_url = "http://localhost:8080/"
+    env = os.environ | {
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "GOLF_ONE_BROWSER_PROFILE_DIR": str(profile),
+        "GOLF_ONE_BROWSER_SESSION_BACKUP_DIR": str(backup_root),
+        "GOLF_ONE_BROWSER_EXTENSION_DIR": str(tmp_path / "no-extension"),
+        "GOLF_ONE_BROWSER_PROC_ROOT": str(proc_root),
+        "GOLF_ONE_BROWSER_ARGS_FILE": str(args_file),
+        "XDG_RUNTIME_DIR": str(runtime_dir),
+    }
+
+    result = subprocess.run(
+        ["bash", str(browser_script), requested_url],
+        check=True,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert session_state.read_text(encoding="utf-8") == "live-session"
+    assert not backup_root.exists()
+    assert "profile is already live" in result.stdout
+    chromium_args = args_file.read_text(encoding="utf-8").splitlines()
+    assert chromium_args[-1] == requested_url
+
+
+def test_kiosk_can_pin_measured_x11_path_and_device_scale(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    browser_script = repo_root / "scripts/open-kiosk-browser.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    chromium = fake_bin / "chromium"
+    chromium.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$GOLF_ONE_BROWSER_ARGS_FILE"\n',
+        encoding="utf-8",
+    )
+    chromium.chmod(0o755)
+
+    args_file = tmp_path / "chromium-args"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    env = os.environ | {
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "GOLF_ONE_BROWSER_PROFILE_DIR": str(tmp_path / "profile"),
+        "GOLF_ONE_BROWSER_EXTENSION_DIR": str(tmp_path / "no-extension"),
+        "GOLF_ONE_BROWSER_ARGS_FILE": str(args_file),
+        "GOLF_ONE_OZONE_PLATFORM": "x11",
+        "GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR": "1",
+        "XDG_RUNTIME_DIR": str(runtime_dir),
+    }
+
+    subprocess.run(
+        ["bash", str(browser_script), "http://localhost:8080/"],
+        check=True,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    args = args_file.read_text(encoding="utf-8").splitlines()
+    assert "--ozone-platform=x11" in args
+    assert "--ozone-platform=wayland" not in args
+    assert "--force-device-scale-factor=1" in args
 
 
 def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
@@ -99,6 +292,233 @@ def test_desktop_recovery_launcher_reuses_live_server_or_starts_simulator():
     assert "Exec=@GOLF_ONE_PROJECT_DIR@/scripts/launch-golf-one.sh" in desktop
     assert "Icon=@GOLF_ONE_PROJECT_DIR@/ui/public/golfone-icon.svg" in desktop
     assert "--mock" not in desktop
+
+
+def test_gnome_x11_autostart_uses_branded_loading_browser_and_focus_wrapper():
+    repo_root = Path(__file__).resolve().parents[1]
+    wrapper = (repo_root / "scripts/launch-golf-one-gnome.sh").read_text(
+        encoding="utf-8"
+    )
+    browser = (repo_root / "scripts/open-kiosk-browser.sh").read_text(
+        encoding="utf-8"
+    )
+    autostart = (
+        repo_root / "scripts/setup/GolfOneGnomeAutostart.desktop"
+    ).read_text(encoding="utf-8")
+
+    main_body = _bash_function_body(wrapper, "main")
+    ready_listener = main_body.index("start_loading_page_ready_server")
+    loading_browser = main_body.index('"$BROWSER_SCRIPT" "$BOOT_PAGE_URL"')
+    dashboard = main_body.index('"$LAUNCH_SCRIPT" "$@"', loading_browser)
+    assert ready_listener < loading_browser < dashboard
+    assert 'BOOT_PAGE="$PROJECT_DIR/scripts/setup/kiosk-loading.html"' in wrapper
+    assert 'BOOT_PAGE_URL="file://$BOOT_PAGE#$KIOSK_URL"' in wrapper
+    assert "PAGE_READY_PORT=38917" in wrapper
+    assert "GOLF_ONE_BROWSER_ALREADY_RUNNING=1" in main_body
+    assert 'xdotool search --onlyvisible --class "$WINDOW_CLASS"' in wrapper
+    assert "xdotool key --clearmodifiers Escape" in wrapper
+    assert 'xdotool windowactivate --sync "$window_id"' in wrapper
+    assert 'xdotool windowfocus "$window_id"' in wrapper
+
+    platform_branch = browser[
+        browser.index('if [ "$OZONE_PLATFORM" = "wayland" ]') :
+    ]
+    wayland_branch, x11_branch = platform_branch.split("\nelse\n", 1)
+    assert "--class=GolfOneKiosk" not in wayland_branch
+    assert "--class=GolfOneKiosk" in x11_branch
+    assert "OnlyShowIn=GNOME;" in autostart
+    assert (
+        "Exec=@GOLF_ONE_PROJECT_DIR@/scripts/launch-golf-one-gnome.sh" in autostart
+    )
+    assert 'GOLF_ONE_OZONE_PLATFORM="${GOLF_ONE_OZONE_PLATFORM:-x11}"' in wrapper
+    assert (
+        'GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR="${GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR:-1}"'
+        in wrapper
+    )
+
+
+def test_gnome_wrapper_falls_back_to_normal_launcher_outside_x11(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    wrapper = repo_root / "scripts/launch-golf-one-gnome.sh"
+    launcher = tmp_path / "launcher"
+    args_file = tmp_path / "launcher-args"
+    launcher.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$GOLF_ONE_TEST_ARGS"\nexit 23\n',
+        encoding="utf-8",
+    )
+    launcher.chmod(0o755)
+
+    env = os.environ | {
+        "GOLF_ONE_LAUNCH_SCRIPT": str(launcher),
+        "GOLF_ONE_TEST_ARGS": str(args_file),
+        "XDG_CURRENT_DESKTOP": "GNOME",
+        "XDG_SESSION_TYPE": "wayland",
+        "DISPLAY": ":99",
+    }
+    result = subprocess.run(
+        ["bash", str(wrapper), "--mock", "--sim"],
+        check=False,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 23
+    assert args_file.read_text(encoding="utf-8").splitlines() == ["--mock", "--sim"]
+
+
+def test_gnome_wrapper_focuses_loading_window_and_reuses_its_browser(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    wrapper = repo_root / "scripts/launch-golf-one-gnome.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls = tmp_path / "calls"
+
+    xdotool = fake_bin / "xdotool"
+    xdotool.write_text(
+        "#!/bin/sh\n"
+        'printf "xdotool %s\\n" "$*" >> "$GOLF_ONE_TEST_CALLS"\n'
+        'if [ "$1" = search ]; then printf "4242\\n"; fi\n',
+        encoding="utf-8",
+    )
+    xdotool.chmod(0o755)
+
+    netcat = fake_bin / "nc"
+    netcat.write_text(
+        '#!/bin/sh\nprintf "GET /ready?t=1 HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n"\n',
+        encoding="utf-8",
+    )
+    netcat.chmod(0o755)
+
+    curl = fake_bin / "curl"
+    curl.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    curl.chmod(0o755)
+
+    browser = tmp_path / "browser"
+    browser.write_text(
+        "#!/bin/sh\n"
+        'printf "browser-url=%s\\n" "$1" >> "$GOLF_ONE_TEST_CALLS"\n'
+        'printf "ozone=%s\\n" "$GOLF_ONE_OZONE_PLATFORM" '
+        '>> "$GOLF_ONE_TEST_CALLS"\n'
+        'printf "scale=%s\\n" "$GOLF_ONE_FORCE_DEVICE_SCALE_FACTOR" '
+        '>> "$GOLF_ONE_TEST_CALLS"\n'
+        "exec sleep 10\n",
+        encoding="utf-8",
+    )
+    browser.chmod(0o755)
+
+    launcher = tmp_path / "launcher"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        'printf "browser-owned=%s\\n" "$GOLF_ONE_BROWSER_ALREADY_RUNNING" '
+        '>> "$GOLF_ONE_TEST_CALLS"\n'
+        'printf "kiosk-url=%s\\n" "$GOLF_ONE_KIOSK_URL" '
+        '>> "$GOLF_ONE_TEST_CALLS"\n'
+        'printf "launcher-args=%s\\n" "$*" >> "$GOLF_ONE_TEST_CALLS"\n'
+        "sleep 0.2\n",
+        encoding="utf-8",
+    )
+    launcher.chmod(0o755)
+
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    kiosk_url = "http://localhost:9876/"
+    env = os.environ | {
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "GOLF_ONE_BROWSER_SCRIPT": str(browser),
+        "GOLF_ONE_LAUNCH_SCRIPT": str(launcher),
+        "GOLF_ONE_KIOSK_URL": kiosk_url,
+        "GOLF_ONE_TEST_CALLS": str(calls),
+        "GOLF_ONE_GNOME_FOCUS_DELAY": "0",
+        "GOLF_ONE_GNOME_MONITOR_DELAY": "0",
+        "XDG_CURRENT_DESKTOP": "ubuntu:GNOME",
+        "XDG_RUNTIME_DIR": str(runtime),
+        "XDG_SESSION_TYPE": "x11",
+        "DISPLAY": ":99",
+    }
+    result = subprocess.run(
+        ["bash", str(wrapper), "--mock", "--sim"],
+        check=False,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 0
+    recorded = calls.read_text(encoding="utf-8")
+    assert f"browser-url=file://{repo_root}/scripts/setup/kiosk-loading.html#{kiosk_url}" in recorded
+    assert "ozone=x11" in recorded
+    assert "scale=1" in recorded
+    assert "browser-owned=1" in recorded
+    assert f"kiosk-url={kiosk_url}" in recorded
+    assert "launcher-args=--mock --sim" in recorded
+    assert "xdotool search --onlyvisible --class GolfOneKiosk" in recorded
+    assert "xdotool key --clearmodifiers Escape" in recorded
+    assert "xdotool windowactivate --sync 4242" in recorded
+    assert "xdotool windowfocus 4242" in recorded
+    assert "Branded loading page painted" in result.stdout
+    assert not (runtime / "golf-one-gnome-loading-page.ready").exists()
+
+
+def test_gnome_session_installer_is_unprivileged_idempotent_and_backs_up(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = repo_root / "scripts/setup/install-golf-one-gnome-session.sh"
+    install_home = tmp_path / "home"
+    autostart = install_home / ".config/autostart/GolfOne.desktop"
+    application = install_home / ".local/share/applications/GolfOne.desktop"
+    desktop = install_home / "Desktop/GolfOne.desktop"
+    originals = {
+        autostart: "old-autostart",
+        application: "old-application",
+        desktop: "old-desktop",
+    }
+    for path, content in originals.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    env = os.environ | {
+        "HOME": str(install_home),
+        "GOLF_ONE_DESKTOP_DIR": str(install_home / "Desktop"),
+    }
+    first = subprocess.run(
+        ["bash", str(installer)],
+        check=False,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    assert first.returncode == 0, first.stderr
+
+    assert "launch-golf-one-gnome.sh" in autostart.read_text(encoding="utf-8")
+    for path in (application, desktop):
+        rendered = path.read_text(encoding="utf-8")
+        assert f"Exec={repo_root}/scripts/launch-golf-one.sh" in rendered
+        assert "@GOLF_ONE_PROJECT_DIR@" not in rendered
+
+    backup_root = install_home / ".config/golf-one/backups"
+    first_backups = list(backup_root.glob("gnome-session-*"))
+    assert len(first_backups) == 1
+    for path, content in originals.items():
+        backup = first_backups[0] / path.relative_to(install_home)
+        assert backup.read_text(encoding="utf-8") == content
+
+    first_render = {path: path.read_bytes() for path in originals}
+    second = subprocess.run(
+        ["bash", str(installer)],
+        check=False,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    assert second.returncode == 0, second.stderr
+    assert {path: path.read_bytes() for path in originals} == first_render
+    assert len(list(backup_root.glob("gnome-session-*"))) == 2
+
+    source = installer.read_text(encoding="utf-8").lower()
+    assert "sudo" not in source
+    assert "lightdm" not in source
+    assert "labwc" not in source
 
 
 def test_session_installer_preserves_rotation_and_installs_recovery_launcher():
