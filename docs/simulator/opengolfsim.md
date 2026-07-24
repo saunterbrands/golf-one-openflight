@@ -53,10 +53,44 @@ scripts/setup/install-offline-fuse-range.sh
 The installer:
 
 - fetches the pinned official FUSE source commit;
+- applies a commit- and context-guarded patch that selects FUSE's explicit
+  WebGL renderer for the Practice Range;
 - builds only the Practice Range;
 - copies its static runtime and required license into
   `~/.local/share/golf-one/fuse`;
+- writes the optimized build to its own commit-and-variant directory instead
+  of overwriting an existing runtime;
 - keeps all third-party FUSE code and assets outside this Git repository.
+
+The explicit WebGL variant avoids the extra WebGPU-wrapper path when Chromium
+ultimately uses a WebGL backend on the supported ARM appliances. On a
+Raspberry Pi 5, the installer also selects the measured `pi-balanced` profile:
+the two large repeating grass textures are capped at 4x anisotropic filtering
+while native 1920 x 720 resolution, 4x MSAA, scene geometry, shadows, and shot
+physics remain unchanged. On other boards, including Orange Pi 5, `auto` keeps
+the full 16x texture setting. Installation fails closed if the checked-out
+commit or the expected upstream source context does not match.
+
+The Pi profile raised the repeated fixed-shot average from 15.42 FPS to 21.73
+FPS (+41%) on the Waveshare display. A more aggressive 33 FPS experiment also
+disabled MSAA, but it was rejected because the ball trace and mountain edges
+were visibly jagged.
+
+Override automatic board detection when building a runtime with:
+
+```bash
+GOLF_ONE_FUSE_PROFILE=full scripts/setup/install-offline-fuse-range.sh
+GOLF_ONE_FUSE_PROFILE=pi-balanced scripts/setup/install-offline-fuse-range.sh
+```
+
+When the installer replaces an active runtime, it keeps that runtime's version
+directory untouched and points `~/.local/share/golf-one/fuse/previous` to it.
+To roll back, repoint `current` and restart Golf One:
+
+```bash
+FUSE_ROOT="$HOME/.local/share/golf-one/fuse"
+ln -sfn "$(readlink "$FUSE_ROOT/previous")" "$FUSE_ROOT/current"
+```
 
 Open it directly at:
 
