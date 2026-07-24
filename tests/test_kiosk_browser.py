@@ -1,8 +1,11 @@
 """Tests for the kiosk browser rendering-path configuration."""
 
+import hashlib
 import json
+import os
 import re
 import struct
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -638,3 +641,135 @@ def test_offline_fuse_installer_is_pinned_and_keeps_third_party_code_out_of_repo
     assert "GOLF_ONE_OFFLINE_FUSE_INSTALL_ROOT" in installer
     assert "LICENSE.md" in installer
     assert "password" not in installer.lower()
+
+
+def test_offline_fuse_installer_builds_guarded_board_specific_variant():
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = (repo_root / "scripts/setup/install-offline-fuse-range.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'FUSE_PROFILE="${GOLF_ONE_FUSE_PROFILE:-auto}"' in installer
+    assert (
+        'DEVICE_MODEL_PATH="${GOLF_ONE_DEVICE_MODEL_PATH:-/proc/device-tree/model}"'
+        in installer
+    )
+    assert 'FUSE_PROFILE="pi-balanced"' in installer
+    assert 'FUSE_PROFILE="full"' in installer
+    assert 'FUSE_VARIANT="range-explicit-webgl-v1"' in installer
+    assert 'FUSE_VARIANT="range-explicit-webgl-anisotropy4-v3"' in installer
+    assert 'VERSION_ID="${FUSE_COMMIT}-${FUSE_VARIANT}"' in installer
+    assert 'VERSION_DIR="$INSTALL_ROOT/$VERSION_ID"' in installer
+    assert 'FUSE_PATCH="$SCRIPT_DIR/patches/fuse-$VERSION_ID.patch"' in installer
+    assert (
+        'ACTUAL_FUSE_COMMIT="$(git -C "$SOURCE_DIR" rev-parse HEAD)"' in installer
+    )
+    assert 'if [ "$ACTUAL_FUSE_COMMIT" != "$FUSE_COMMIT" ]; then' in installer
+    assert (
+        'git -C "$SOURCE_DIR" apply --unidiff-zero --check "$FUSE_PATCH"'
+        in installer
+    )
+    assert 'git -C "$SOURCE_DIR" apply --unidiff-zero "$FUSE_PATCH"' in installer
+    assert (
+        'printf \'%s\\n\' "$FUSE_VARIANT" > "$STAGING_DIR/BUILD_VARIANT"'
+        in installer
+    )
+    assert (
+        'printf \'%s\\n\' "$PATCH_SHA256" > "$STAGING_DIR/SOURCE_PATCH_SHA256"'
+        in installer
+    )
+    assert 'PREVIOUS_LINK="$INSTALL_ROOT/previous"' in installer
+
+
+def test_offline_fuse_renderer_patch_changes_only_range_backend():
+    repo_root = Path(__file__).resolve().parents[1]
+    patch = (
+        repo_root / "scripts/setup/patches/"
+        "fuse-6f10092c4444a538dd869d495eb2cb45697a5fb5-range-explicit-webgl-v1.patch"
+    ).read_text(encoding="utf-8")
+
+    removed_lines = [
+        line[1:]
+        for line in patch.splitlines()
+        if line.startswith("-") and not line.startswith("---")
+    ]
+    added_lines = [
+        line[1:]
+        for line in patch.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+
+    assert "diff --git a/examples/range/range.ts b/examples/range/range.ts" in patch
+    assert removed_lines == ["    renderMode: 'webgpu',"]
+    assert added_lines == ["    renderMode: 'webgl',"]
+
+
+def test_pi_balanced_fuse_patch_keeps_msaa_and_caps_only_range_grass_textures():
+    repo_root = Path(__file__).resolve().parents[1]
+    patch = (
+        repo_root / "scripts/setup/patches/"
+        "fuse-6f10092c4444a538dd869d495eb2cb45697a5fb5-"
+        "range-explicit-webgl-anisotropy4-v3.patch"
+    ).read_text(encoding="utf-8")
+
+    assert "diff --git a/examples/range/range.ts b/examples/range/range.ts" in patch
+    assert "antialias: true," in patch
+    assert "antialias: false," not in patch
+    assert "-    renderMode: 'webgpu'," in patch
+    assert "+    renderMode: 'webgl'," in patch
+    assert patch.count("+  grass") == 2
+    assert (
+        patch.count("Math.min(gameContext.renderer?.getMaxAnisotropy() || 1, 4)")
+        == 2
+    )
+    assert "src/renderer.ts" not in patch
+    assert "src/lights.ts" not in patch
+
+
+def test_offline_fuse_installer_preserves_active_runtime_for_rollback(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    installer = repo_root / "scripts/setup/install-offline-fuse-range.sh"
+    patch = (
+        repo_root / "scripts/setup/patches/"
+        "fuse-6f10092c4444a538dd869d495eb2cb45697a5fb5-range-explicit-webgl-v1.patch"
+    )
+    commit = "6f10092c4444a538dd869d495eb2cb45697a5fb5"
+    variant_name = f"{commit}-range-explicit-webgl-v1"
+    install_root = tmp_path / "fuse"
+    baseline = install_root / commit
+    variant = install_root / variant_name
+
+    for runtime in (baseline, variant):
+        (runtime / "examples/range").mkdir(parents=True)
+        (runtime / "examples/range/index.html").write_text(
+            f"<!doctype html><title>{runtime.name}</title>",
+            encoding="utf-8",
+        )
+    (baseline / "rollback-marker").write_text("keep me", encoding="utf-8")
+    (variant / "SOURCE_COMMIT").write_text(f"{commit}\n", encoding="utf-8")
+    (variant / "BUILD_VARIANT").write_text(
+        "range-explicit-webgl-v1\n",
+        encoding="utf-8",
+    )
+    (variant / "SOURCE_PATCH_SHA256").write_text(
+        f"{hashlib.sha256(patch.read_bytes()).hexdigest()}\n",
+        encoding="utf-8",
+    )
+    (install_root / "current").symlink_to(baseline, target_is_directory=True)
+
+    result = subprocess.run(
+        ["bash", str(installer)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "GOLF_ONE_OFFLINE_FUSE_INSTALL_ROOT": str(install_root),
+        },
+    )
+
+    assert (install_root / "current").resolve() == variant.resolve()
+    assert (install_root / "previous").resolve() == baseline.resolve()
+    assert (baseline / "rollback-marker").read_text(encoding="utf-8") == "keep me"
+    assert "Build variant: range-explicit-webgl-v1" in result.stdout
+    assert f"Rollback runtime: {install_root / 'previous'}" in result.stdout

@@ -1,0 +1,11 @@
+diff --git a/examples/range/range.ts b/examples/range/range.ts
+--- a/examples/range/range.ts
++++ b/examples/range/range.ts
+@@ -106,6 +106,6 @@ async function setupWorld() {
+   gameContext.renderer = new FuseRenderer({
+     canvas,
+     antialias: true,
+-    renderMode: 'webgpu',
++    renderMode: 'webgl',
+     qualityLevel: gameContext.setupData?.qualityLevel ?? 2
+   });
